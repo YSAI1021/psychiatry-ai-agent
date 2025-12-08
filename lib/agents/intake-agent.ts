@@ -216,30 +216,26 @@ AGENT LANGUAGE STYLE - CRITICAL:
   * Long technical explanations
 - Focus on helpful transitions, warm clarity, and smooth flow
 
-CRITICAL REQUIREMENTS:
 1. DO NOT ask structured PHQ-9 questions or mention "PHQ-9", "screening", or "questionnaire" to the patient
 2. Ask about symptoms naturally in conversation:
-   - Sleep patterns (trouble sleeping, sleeping too much)
-   - Appetite changes (eating more or less)
-   - Energy levels (feeling tired, low energy)
-   - Concentration (trouble focusing, making decisions)
-   - Mood (feeling down, hopeless, anxious)
-   - Interest in activities (loss of interest or pleasure)
-   - Self-perception (feeling bad about yourself)
-   - Physical symptoms (moving slowly or restlessness)
+   - Sleep patterns (trouble sleeping, sleeping too much, duration)
+   - Appetite changes (eating more or less, duration)
+   - Energy levels (feeling tired, low energy, duration)
+   - Concentration (trouble focusing, making decisions, duration)
+   - Mood (feeling down, hopeless, anxious, duration)
+   - Interest in activities (loss of interest or pleasure, duration)
+   - Self-perception (feeling bad about yourself, duration)
+   - Physical symptoms (moving slowly or restlessness, duration)
    - Safety (thoughts of self-harm or suicide)
-3. TIME FRAME AWARENESS: When asking about symptoms, ALWAYS ask how long each symptom has been present.
-   - After learning about a symptom, ask: "How long have you been experiencing [symptom]?" or "When did [symptom] start?"
-   - Collect duration information for all symptoms to support diagnosis
-   - Examples: "3 months", "about 6 weeks", "since last year"
-
-4. GENERAL CLARIFICATION: If patient gives unclear answers or says "I don't know" or "not sure", DO NOT repeat the same question.
+3. TIME FRAME AWARENESS: When learning about a symptom, ask how long it's been present.
+   - Ask: "How long have you been experiencing [symptom]?" or "When did [symptom] start?"
+   - BUT only if duration hasn't already been mentioned in the conversation
+4. If patient gives unclear answers or says "I don't know", DO NOT repeat the same question.
    Instead, clarify or rephrase to help them understand.
-   Example: "When I ask about 'feeling tired,' I mean physical or mental fatigue. Could you describe what you've experienced?"
-
 5. Current completion: ${completion}% - you need at least 75% to be ready for the screening form
-${allFieldsComplete && !patientReady ? '6. PATIENT READINESS CHECKPOINT: Once you have gathered adequate information about their symptoms and history, you MUST say: "Thanks for sharing all of that. Before we move on, I\'d like you to fill out a short 9-question form. This helps your provider understand your symptoms a bit better." After saying this, indicate readiness to proceed to the screening form. Do NOT ask PHQ-9 questions in the chat - they will be handled by a separate form.' : ''}
-${allFieldsComplete && patientReady ? '7. READY: Patient has been informed about the screening form. Indicate that they should proceed to fill out the form.' : ''}`;
+
+${allFieldsComplete && !patientReady ? '6. PATIENT READINESS CHECKPOINT: Once you have gathered adequate information, ask: "Is there anything else you\'d like to share before I summarize everything?" Then say: "Thanks for sharing all of that. Before we move on, I\'d like you to fill out a short 9-question form. This helps your provider understand your symptoms a bit better."' : ''}
+${allFieldsComplete && patientReady ? '7. READY: Patient has been informed about the screening form. They should proceed to fill out the form.' : ''}`;
 
   const messages = [
     { role: 'system' as const, content: systemPrompt },
@@ -324,8 +320,72 @@ ${allFieldsComplete && patientReady ? '7. READY: Patient has been informed about
 }
 
 /**
+ * Build a human-readable fact memory string from current intake data
+ * This helps the agent know what's already been covered
+ */
+function buildFactMemory(currentData: Partial<IntakeData>): string[] {
+  const facts: string[] = [];
+  
+  if (currentData.chiefComplaint) {
+    facts.push(`- Chief complaint: ${currentData.chiefComplaint}`);
+  }
+  
+  if (currentData.historyOfPresentIllness) {
+    facts.push(`- History of present illness: ${currentData.historyOfPresentIllness.substring(0, 100)}...`);
+  }
+  
+  if (currentData.pastPsychiatricHistory) {
+    facts.push(`- Past psychiatric history: ${currentData.pastPsychiatricHistory.substring(0, 100)}...`);
+  }
+  
+  if (currentData.medications) {
+    facts.push(`- Current medications: ${currentData.medications}`);
+    if (currentData.medicationDuration) {
+      facts.push(`  - Duration: ${currentData.medicationDuration}`);
+    }
+  }
+  
+  if (currentData.safetyConcerns) {
+    facts.push(`- Safety concerns: ${currentData.safetyConcerns}`);
+  }
+  
+  if (currentData.substanceUse) {
+    facts.push(`- Substance use: ${currentData.substanceUse}`);
+  }
+  
+  if (currentData.functionalImpact) {
+    facts.push(`- Functional impact: ${currentData.functionalImpact}`);
+  }
+  
+  if (currentData.patientAge) {
+    facts.push(`- Age: ${currentData.patientAge}`);
+  }
+  
+  if (currentData.patientGender) {
+    facts.push(`- Gender: ${currentData.patientGender}`);
+  }
+  
+  if (currentData.symptomDuration && Object.keys(currentData.symptomDuration).length > 0) {
+    const durations = Object.entries(currentData.symptomDuration)
+      .map(([symptom, duration]) => `${symptom}: ${duration}`)
+      .join(', ');
+    facts.push(`- Symptom durations: ${durations}`);
+  }
+  
+  if (currentData.symptomSeverity && Object.keys(currentData.symptomSeverity).length > 0) {
+    const severities = Object.entries(currentData.symptomSeverity)
+      .map(([symptom, severity]) => `${symptom}: ${severity}`)
+      .join(', ');
+    facts.push(`- Symptom severities: ${severities}`);
+  }
+  
+  return facts;
+}
+
+/**
  * Extract structured intake data from conversation using LLM
  * Uses GPT to extract structured data points from conversation history
+ * This function builds up a fact memory that prevents asking redundant questions
  */
 async function extractIntakeData(
   history: Array<{ role: 'user' | 'assistant'; content: string }>,
@@ -336,35 +396,45 @@ async function extractIntakeData(
     return {};
   }
 
-  const extractionPrompt = `Based on the following conversation, extract any clinical information mentioned and return it as JSON. Look for:
-- chiefComplaint: main reason for seeking care
-- historyOfPresentIllness: details about current symptoms and their duration
-- pastPsychiatricHistory: prior diagnoses, treatments, hospitalizations
-- medications: current psychiatric medications
+  // Build current knowledge context
+  const currentKnowledge = buildFactMemory(currentData);
+  const knowledgeContext = currentKnowledge.length > 0 
+    ? `Current knowledge: ${currentKnowledge.join('; ')}` 
+    : 'No prior information collected yet.';
+
+  const extractionPrompt = `You are a clinical data extraction assistant. Extract NEW information from the conversation that hasn't been mentioned before.
+
+${knowledgeContext}
+
+Extract any NEW clinical information mentioned in the most recent messages and return it as JSON. Look for:
+- chiefComplaint: main reason for seeking care (if not already known)
+- historyOfPresentIllness: details about current symptoms, onset, progression
+- pastPsychiatricHistory: prior diagnoses, treatments, medications, hospitalizations, therapy
+- medications: current psychiatric medications (name and dosage if mentioned)
 - medicationDuration: how long taking current medications
-- safetyConcerns: suicidal ideation, self-harm, harm to others
-- substanceUse: alcohol, drugs, tobacco use
-- functionalImpact: how symptoms affect daily life
+- safetyConcerns: suicidal ideation, self-harm thoughts, harm to others, hallucinations
+- substanceUse: alcohol use (frequency/amount), drug use (type/frequency), tobacco use
+- functionalImpact: how symptoms affect work, relationships, daily activities, sleep patterns
 - patientAge: age if mentioned (number only)
 - patientGender: gender if mentioned (male/female/non-binary/prefer-not-to-say)
-- symptomDuration: object with symptom names as keys and duration strings as values (e.g., {"depression": "3 months", "anxiety": "6 weeks", "insomnia": "2 weeks"})
-- symptomSeverity: object with symptom names as keys and severity strings as values (e.g., {"depression": "moderate", "anxiety": "mild", "insomnia": "severe"})
-- phq9Responses: array of numbers (0-3 each) representing answers to depression symptom questions
-  IMPORTANT: Parse natural language answers into scores:
-    - "not at all", "never", "none", "no" → 0
-    - "several days", "some days", "a few", "occasionally" → 1
-    - "more than half the days", "more than half", "often", "most days", "I'd say 2", "probably a 2", "probably 2" → 2
-    - "nearly every day", "every day", "always", "all the time" → 3
-  Current known responses: ${JSON.stringify(currentData.phq9Responses || [])}
-  Look for NEW answers in the most recent user messages. If you find a new answer to a depression symptom question:
-    - Append it to the existing array (maintain order, don't duplicate)
-    - Ensure array length does not exceed 9
-    - If array becomes exactly 9, all questions are answered
+- symptomDuration: object with symptom names as keys and duration strings as values
+  Examples: {"depression": "3 months", "anxiety": "6 weeks", "insomnia": "2 weeks", "low mood": "since last year"}
+  Extract any time-related phrases: "for 3 months", "about 6 weeks", "since January", "started last year"
+- symptomSeverity: object with symptom names as keys and severity strings as values
+  Examples: {"depression": "moderate", "anxiety": "mild", "insomnia": "severe"}
+  Look for words like: mild, moderate, severe, intense, mild-moderate, severe
 
-Return only a JSON object with the fields found, no other text. If a field wasn't mentioned, omit it.
+IMPORTANT EXTRACTION RULES:
+1. Only extract NEW information - do not repeat what's already in current knowledge
+2. If a symptom is mentioned with duration, extract both: symptomDuration AND symptomSeverity if severity is mentioned
+3. Extract duration information whenever mentioned (e.g., "I've been depressed for 3 months" → symptomDuration: {"depression": "3 months"})
+4. Look for multiple facts in single messages - extract everything mentioned
+5. If patient mentions multiple symptoms, extract all of them
 
-Conversation:
-${history.map(m => `${m.role}: ${m.content}`).join('\n')}
+Return only a JSON object with NEW fields found, no other text. If nothing new was mentioned, return empty object {}.
+
+Conversation (most recent messages):
+${history.slice(-10).map(m => `${m.role}: ${m.content}`).join('\n')}
 Assistant: ${lastAssistantMessage}`;
 
   try {
@@ -373,22 +443,54 @@ Assistant: ${lastAssistantMessage}`;
       messages: [
         {
           role: 'system',
-          content: 'You are a data extraction assistant. Extract clinical information from conversations and return only valid JSON.',
+          content: 'You are a clinical data extraction assistant. Extract NEW clinical information from conversations and return only valid JSON. Do not include information already known. Be thorough but precise.',
         },
         {
           role: 'user',
           content: extractionPrompt,
         },
       ],
-      temperature: 0.3,
-      max_tokens: 500,
-      response_format: { type: 'json_object' },
+      temperature: 0.2, // Lower temperature for more consistent extraction
+      max_tokens: 1000,
+      response_format: { type: 'json_object' }, // Force JSON output
     });
 
-    const extracted = JSON.parse(response.choices[0]?.message?.content || '{}');
+    const content = response.choices[0]?.message?.content || '{}';
+    
+    // Handle cases where response might have markdown code blocks
+    let jsonContent = content.trim();
+    if (jsonContent.startsWith('```json')) {
+      jsonContent = jsonContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    } else if (jsonContent.startsWith('```')) {
+      jsonContent = jsonContent.replace(/```\n?/g, '').trim();
+    }
+    
+    const extracted = JSON.parse(jsonContent);
+    
+    // Merge symptom duration and severity objects if they exist
+    // This allows accumulating symptoms across multiple messages
+    if (extracted.symptomDuration || currentData.symptomDuration) {
+      extracted.symptomDuration = {
+        ...(currentData.symptomDuration || {}),
+        ...(extracted.symptomDuration || {}),
+      };
+    }
+    
+    if (extracted.symptomSeverity || currentData.symptomSeverity) {
+      extracted.symptomSeverity = {
+        ...(currentData.symptomSeverity || {}),
+        ...(extracted.symptomSeverity || {}),
+      };
+    }
+    
+    // Log extraction for debugging
+    if (Object.keys(extracted).length > 0) {
+      console.log('[Intake Agent] Extracted new facts:', Object.keys(extracted));
+    }
+    
     return extracted as Partial<IntakeData>;
   } catch (error) {
-    console.error('Error extracting intake data:', error);
+    console.error('[Intake Agent] Error extracting intake data:', error);
     return {};
   }
 }
