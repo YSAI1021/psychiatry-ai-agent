@@ -45,6 +45,12 @@ export async function generateClinicalSummary(
 
   const systemPrompt = `You are a professional psychiatric summary agent. Generate a concise but complete clinical summary in natural sentence format.
 
+AGENT LANGUAGE STYLE:
+- Use a simple, human, conversational tone without being clinical or overly formal
+- Avoid repeating user responses verbatim
+- Avoid over-apologizing or long technical explanations
+- Focus on helpful transitions and warm clarity
+
 REQUIRED STRUCTURE (based on standard psychiatric interview format):
 1. Identifying information: "A [age]-year-old [gender] presenting with [chief complaint]..."
 2. History of present illness: Current symptoms, severity, duration (1-2 sentences)

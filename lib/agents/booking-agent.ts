@@ -64,7 +64,7 @@ Generate a professional, concise email suitable for a psychiatrist referral.`;
       messages: [
         {
           role: 'system',
-          content: 'You are a professional medical referral coordinator. Generate concise, professional referral emails.',
+          content: 'You are a professional medical referral coordinator. Generate concise, professional referral emails.\n\nAGENT LANGUAGE STYLE: Use a simple, human, conversational tone. Avoid repeating information verbatim unless clarifying. Focus on helpful transitions and clear communication.',
         },
         {
           role: 'user',
