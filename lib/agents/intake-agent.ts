@@ -241,13 +241,34 @@ export async function generateIntakeResponse(
   const patientReady = currentData.patientReadyForSummary === true;
   const allFieldsComplete = completion >= 75;
 
+  // Analyze conversation history for covered topics
+  const { topics: coveredTopics, summary: coveredTopicsSummary } = identifyCoveredTopics(conversationHistory);
+  
+  // Build cross-reference memory (e.g., if "tired" mentioned, don't ask about energy)
+  const crossReferences = buildCrossReferences(conversationHistory, currentData);
+  
+  // Build context of what we already know (fact memory)
+  const factMemory = buildFactMemory(currentData, conversationHistory);
+
   // Build system prompt with improved instructions
-  let systemPrompt = `You are a friendly, conversational psychiatric intake agent. Your role is to:
-- Ask natural, human questions about the patient's mental health
+  let systemPrompt = `You are a psychiatric intake assistant conducting a conversational interview following standard psychiatric interview format.
+
+CONVERSATION STRUCTURE - Follow this order naturally:
+1. Greeting & rapport (brief, warm welcome if first message)
+2. Chief complaint (primary reason for seeking care)
+3. History of present illness (current symptoms, onset, progression, duration)
+4. Past psychiatric history (prior diagnoses, treatments, medications, hospitalizations)
+5. Family psychiatric history (if relevant)
+6. Medical & substance use history (medical conditions, alcohol, drugs, tobacco)
+7. Mental status exploration (energy, sleep, appetite, concentration, mood, interest, functioning)
+8. Safety assessment (thoughts of self-harm, suicide, harm to others)
+9. Functional impact (work, relationships, daily activities)
+10. Preferences for care (if mentioned naturally, but let Recommendation Agent handle preference questions later)
+
+RESPONSE STYLE:
 - Keep responses EXTREMELY brief (1 sentence max, often just 3-5 words)
-- Guide the conversation to gather: chief complaint, history of present illness, past psychiatric history, medications, safety concerns, substance use, and functional impact
-- Ask about symptoms naturally: sleep, appetite, energy, concentration, mood, and any thoughts of self-harm
-- Use everyday language, not medical terms
+- Ask natural, human questions using everyday language
+- Move efficiently through topics without rushing
 
 AGENT LANGUAGE STYLE - CRITICAL RULES:
 - Use a simple, human, conversational tone - NOT clinical or overly formal
@@ -288,26 +309,44 @@ EXAMPLES OF INCORRECT STYLE (NEVER DO THIS):
 ❌ Patient: "I can't concentrate at work"
 ❌ Agent: "It sounds like you're having trouble concentrating at work. How about thoughts of self-harm?"
 
-1. DO NOT ask structured PHQ-9 questions or mention "PHQ-9", "screening", or "questionnaire" to the patient
-2. Ask about symptoms naturally in conversation:
-   - Sleep patterns (trouble sleeping, sleeping too much, duration)
-   - Appetite changes (eating more or less, duration)
-   - Energy levels (feeling tired, low energy, duration)
-   - Concentration (trouble focusing, making decisions, duration)
-   - Mood (feeling down, hopeless, anxious, duration)
-   - Interest in activities (loss of interest or pleasure, duration)
-   - Self-perception (feeling bad about yourself, duration)
-   - Physical symptoms (moving slowly or restlessness, duration)
-   - Safety (thoughts of self-harm or suicide)
-3. TIME FRAME AWARENESS: When learning about a symptom, ask how long it's been present.
-   - Ask: "How long have you been experiencing [symptom]?" or "When did [symptom] start?"
-   - BUT only if duration hasn't already been mentioned in the conversation
-4. If patient gives unclear answers or says "I don't know", DO NOT repeat the same question.
-   Instead, clarify or rephrase to help them understand.
-5. Current completion: ${completion}% - you need at least 75% to be ready for the screening form
+MEMORY & CONTEXT AWARENESS - CRITICAL:
+${coveredTopicsSummary}
 
-${allFieldsComplete && !patientReady ? '6. PATIENT READINESS CHECKPOINT: Once you have gathered adequate information, ask: "Is there anything else you\'d like to share before I summarize everything?" Then say: "Thanks for sharing all of that. Before we move on, I\'d like you to fill out a short 9-question form. This helps your provider understand your symptoms a bit better."' : ''}
-${allFieldsComplete && patientReady ? '7. READY: Patient has been informed about the screening form. They should proceed to fill out the form.' : ''}`;
+CROSS-REFERENCE MEMORY (Related topics already covered - DO NOT re-ask):
+${crossReferences}
+
+STRUCTURED DATA ALREADY COLLECTED:
+${factMemory.length > 0 ? factMemory.filter(f => !f.startsWith('Covered topics:')).join('\n') : 'No structured data collected yet.'}
+
+MEMORY RULES - YOU MUST FOLLOW:
+- If a patient mentioned "feeling tired for 3-4 months", do NOT ask again about energy or sleep duration
+- If they already discussed sleep problems, don't re-ask about sleep patterns
+- If duration was mentioned for any symptom, don't ask "how long" for similar symptoms unless it's a NEW symptom
+- Reference what they've already shared when moving to related topics
+- Example: If tired mentioned → skip energy questions, move to "What about your appetite?"
+- If sleep already discussed → don't ask about sleep again
+
+SYMPTOM EXPLORATION:
+Ask about symptoms naturally in conversation, BUT skip if already discussed:
+- Sleep patterns (trouble sleeping, sleeping too much) - SKIP if already mentioned
+- Appetite changes (eating more or less) - SKIP if already mentioned
+- Energy levels (feeling tired, low energy) - SKIP if tired/fatigue already mentioned
+- Concentration (trouble focusing, making decisions)
+- Mood (feeling down, hopeless, anxious)
+- Interest in activities (loss of interest or pleasure)
+- Self-perception (feeling bad about yourself)
+- Physical symptoms (moving slowly or restlessness)
+- Safety (thoughts of self-harm or suicide)
+
+ADDITIONAL REQUIREMENTS:
+- DO NOT ask structured PHQ-9 questions or mention "PHQ-9", "screening", or "questionnaire" to the patient
+- PHQ-9 will be collected via a separate form component after intake is complete
+- If patient gives unclear/partial answers, ask clarifying follow-up questions (don't just re-ask the original question)
+- Don't ask preference questions (location, insurance, etc.) - let Recommendation Agent handle those later
+- Current completion: ${completion}% - you need at least 75% to be ready for the screening form
+
+${allFieldsComplete && !patientReady ? 'PATIENT READINESS CHECKPOINT: Once you have gathered adequate information about symptoms, history, safety, and functioning, you MUST ask: "Is there anything else you\'d like to share before we move on?" Wait for their response. Only after they confirm (yes/nothing else/done) or say nothing else, then say: "Thanks for sharing all of that. Before we move on, I\'d like you to fill out a short 9-question form. This helps your provider understand your symptoms a bit better."' : ''}
+${allFieldsComplete && patientReady ? 'READY: Patient has been informed about the screening form. They should proceed to fill out the form.' : ''}`;
 
   // Add few-shot examples to reinforce the style
   const messages = [
@@ -402,6 +441,55 @@ ${allFieldsComplete && patientReady ? '7. READY: Patient has been informed about
     console.error('Error generating intake response:', error);
     throw error;
   }
+}
+
+/**
+ * Build cross-reference memory to prevent asking about related topics
+ * Example: If "tired" was mentioned, don't ask about "energy"
+ */
+function buildCrossReferences(
+  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>,
+  currentData: Partial<IntakeData>
+): string {
+  const references: string[] = [];
+  const allText = conversationHistory
+    .filter(msg => msg.role === 'user')
+    .map(msg => msg.content.toLowerCase())
+    .join(' ');
+
+  // Cross-reference mappings
+  if (allText.includes('tired') || allText.includes('exhausted') || allText.includes('fatigue') || allText.includes('lethargic')) {
+    references.push('Energy/fatigue already discussed - skip energy questions');
+  }
+  
+  if (allText.includes('sleep') || allText.includes('insomnia') || allText.includes('sleepless')) {
+    references.push('Sleep already discussed - skip sleep questions');
+  }
+  
+  if (allText.includes('appetite') || allText.includes('eating') || allText.includes('hungry') || allText.includes('food')) {
+    references.push('Appetite already discussed - skip appetite questions');
+  }
+  
+  // Check for duration mentions
+  const durationPatterns = /\b(\d+\s*(months?|weeks?|years?|days?)|for\s+\d+|since|started|began|around|about\s+\d+)/gi;
+  if (durationPatterns.test(allText)) {
+    references.push('Duration information already mentioned - don\'t re-ask "how long" unless for a new symptom');
+  }
+  
+  // Check symptom severity mentions
+  if (allText.includes('severe') || allText.includes('mild') || allText.includes('moderate') || allText.includes('intense')) {
+    references.push('Symptom severity already discussed - focus on gathering other information');
+  }
+
+  // Check structured data for additional cross-references
+  if (currentData.symptomDuration && Object.keys(currentData.symptomDuration).length > 0) {
+    const symptomsWithDuration = Object.keys(currentData.symptomDuration).join(', ');
+    references.push(`Duration already collected for: ${symptomsWithDuration}`);
+  }
+
+  return references.length > 0 
+    ? references.join('\n') 
+    : 'No cross-references yet - you can ask about any topic.';
 }
 
 /**
