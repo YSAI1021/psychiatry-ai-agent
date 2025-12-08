@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { Message, UserPreferences } from '@/types';
+import { Message, UserPreferences, Psychiatrist } from '@/types';
 
 export class RecommendationAgent {
   private openai: OpenAI;
@@ -13,7 +13,7 @@ export class RecommendationAgent {
   async processPreferenceQuestion(
     userResponse: string,
     clinicalSummary: string
-  ): Promise<{ response: string; isComplete: boolean; recommendations?: string }> {
+  ): Promise<{ response: string; isComplete: boolean; recommendations?: string; psychiatrists?: Psychiatrist[] }> {
     // Handle initial start
     if (userResponse.toLowerCase() === 'start' || userResponse.toLowerCase().trim() === '') {
       const firstQuestion = this.getNextPreferenceQuestion();
@@ -33,13 +33,14 @@ export class RecommendationAgent {
     const allPreferencesCollected = this.allPreferencesCollected();
 
     if (allPreferencesCollected) {
-      // Generate recommendations
-      const recommendations = await this.generateRecommendations(clinicalSummary);
-      this.conversationHistory.push({ role: 'assistant', content: recommendations });
+      // Generate recommendations with psychiatrist data
+      const result = await this.generateRecommendations(clinicalSummary);
+      this.conversationHistory.push({ role: 'assistant', content: result.response });
       return {
-        response: recommendations,
+        response: result.response,
         isComplete: true,
-        recommendations,
+        recommendations: result.response,
+        psychiatrists: result.psychiatrists,
       };
     } else {
       // Ask next preference question
@@ -92,14 +93,22 @@ export class RecommendationAgent {
       }
     }
 
-    // Extract insurance
-    if (!this.preferences.insurance && (lowerResponse.includes('insurance') || lowerResponse.includes('covered'))) {
-      // Try to extract insurance name
-      const insuranceKeywords = ['blue cross', 'aetna', 'cigna', 'unitedhealth', 'medicaid', 'medicare'];
-      for (const keyword of insuranceKeywords) {
-        if (lowerResponse.includes(keyword)) {
-          this.preferences.insurance = keyword;
-          break;
+    // Extract location
+    if (!this.preferences.location) {
+      if (lowerResponse.includes('no preference') || lowerResponse.includes("don't care")) {
+        this.preferences.location = 'no preference';
+      } else {
+        // Try to extract location keywords
+        const locationKeywords = ['new york', 'nyc', 'los angeles', 'chicago', 'houston', 'phoenix', 'philadelphia', 'san antonio', 'san diego', 'dallas'];
+        for (const keyword of locationKeywords) {
+          if (lowerResponse.includes(keyword)) {
+            this.preferences.location = keyword;
+            break;
+          }
+        }
+        if (!this.preferences.location && lowerResponse.length > 3) {
+          // Use the response as location if it seems like a location
+          this.preferences.location = userResponse;
         }
       }
     }
@@ -107,33 +116,23 @@ export class RecommendationAgent {
 
   private allPreferencesCollected(): boolean {
     return !!(
-      this.preferences.preferredGender &&
-      this.preferences.preferredLanguage &&
-      this.preferences.therapyStyle
+      this.preferences.location &&
+      this.preferences.preferredGender
     );
   }
 
   private getNextPreferenceQuestion(): string {
+    if (!this.preferences.location) {
+      return "What is your preferred psychiatrist location? (e.g., specific area, city, or 'no preference')";
+    }
     if (!this.preferences.preferredGender) {
       return "What is your preferred gender for your psychiatrist? (e.g., male, female, non-binary, or no preference)";
-    }
-    if (!this.preferences.preferredLanguage) {
-      return "What is your preferred language for sessions? (e.g., English, Spanish, Mandarin, etc.)";
-    }
-    if (!this.preferences.therapyStyle) {
-      return "What therapy style or approach are you interested in? (e.g., CBT, DBT, psychodynamic, medication management, etc.)";
-    }
-    if (!this.preferences.insurance) {
-      return "Do you have insurance, and if so, which provider? (You can also say 'no insurance' or 'self-pay')";
-    }
-    if (!this.preferences.location) {
-      return "Do you have a location preference? (e.g., specific area, city, or 'no preference')";
     }
 
     return "Thank you! I have all the information I need.";
   }
 
-  private async generateRecommendations(clinicalSummary: string): Promise<string> {
+  private async generateRecommendations(clinicalSummary: string): Promise<{ response: string; psychiatrists: Psychiatrist[] }> {
     const preferencesText = Object.entries(this.preferences)
       .filter(([_, value]) => value)
       .map(([key, value]) => `${key}: ${value}`)
@@ -145,16 +144,24 @@ export class RecommendationAgent {
         messages: [
           {
             role: 'system',
-            content: `You are a recommendation agent that matches patients with psychiatrists based on clinical needs and preferences.
+            content: `You are a recommendation agent that matches patients with psychiatrists. Generate 2-3 psychiatrist recommendations in JSON format.
 
-Generate a helpful recommendation that:
-1. Matches the patient's clinical needs from the summary
-2. Respects their preferences
-3. Provides 2-3 psychiatrist recommendations (you can create realistic examples)
-4. Explains why each psychiatrist is a good match
-5. Includes relevant details like specialization, approach, and availability
-
-Be warm, professional, and helpful.`,
+Return ONLY valid JSON in this exact format:
+{
+  "response": "A brief text message introducing the recommendations",
+  "psychiatrists": [
+    {
+      "id": "unique-id-1",
+      "name": "Dr. First Last",
+      "credential": "MD",
+      "subspecialty": "e.g., Depression & Anxiety, ADHD, Bipolar Disorder",
+      "inNetwork": true/false,
+      "acceptingNewPatients": true/false,
+      "availability": "e.g., Mon-Fri 9am-5pm",
+      "bio": "Brief professional bio (2-3 sentences)"
+    }
+  ]
+}`,
           },
           {
             role: 'user',
@@ -162,13 +169,45 @@ Be warm, professional, and helpful.`,
           },
         ],
         temperature: 0.7,
-        max_tokens: 800,
+        max_tokens: 1500,
+        response_format: { type: 'json_object' },
       });
 
-      return completion.choices[0]?.message?.content || 'Unable to generate recommendations.';
+      const content = completion.choices[0]?.message?.content || '{}';
+      const parsed = JSON.parse(content);
+      
+      return {
+        response: parsed.response || 'Here are some psychiatrists that match your needs:',
+        psychiatrists: parsed.psychiatrists || [],
+      };
     } catch (error) {
       console.error('Error generating recommendations:', error);
-      throw new Error('Failed to generate recommendations. Please try again.');
+      // Return fallback data
+      return {
+        response: 'Here are some psychiatrists that match your needs:',
+        psychiatrists: [
+          {
+            id: '1',
+            name: 'Dr. Sarah Johnson',
+            credential: 'MD',
+            subspecialty: 'Depression & Anxiety',
+            inNetwork: true,
+            acceptingNewPatients: true,
+            availability: 'Mon-Fri 9am-5pm',
+            bio: 'Board-certified psychiatrist with 10+ years of experience specializing in mood disorders.',
+          },
+          {
+            id: '2',
+            name: 'Dr. Michael Chen',
+            credential: 'DO',
+            subspecialty: 'ADHD & Trauma',
+            inNetwork: false,
+            acceptingNewPatients: true,
+            availability: 'Tue-Thu 10am-6pm',
+            bio: 'Experienced psychiatrist focusing on ADHD and trauma-informed care.',
+          },
+        ],
+      };
     }
   }
 

@@ -38,19 +38,19 @@ export default function Home() {
           height: 100vh;
           max-width: 1200px;
           margin: 0 auto;
-          background: white;
+          background: #f7f7f8;
         }
 
         .header {
           padding: 1rem 1.5rem;
-          border-bottom: 1px solid #e5e5e5;
-          background: white;
+          border-bottom: 1px solid #e5e7eb;
+          background: #ffffff;
         }
 
         .logo {
           font-size: 1.5rem;
           font-weight: 600;
-          color: #333;
+          color: #1f2937;
         }
 
         .important-notice {
@@ -58,11 +58,11 @@ export default function Home() {
           align-items: center;
           gap: 0.5rem;
           padding: 0.75rem 1.5rem;
-          background: #fff3cd;
-          border-bottom: 1px solid #ffc107;
-          border-left: 4px solid #ffc107;
+          background: #fef3c7;
+          border-bottom: 1px solid #fbbf24;
+          border-left: 4px solid #f59e0b;
           font-size: 0.9rem;
-          color: #856404;
+          color: #92400e;
         }
 
         .notice-icon {
@@ -79,7 +79,7 @@ export default function Home() {
           display: flex;
           flex-direction: column;
           overflow: hidden;
-          background: white;
+          background: #f7f7f8;
         }
 
         @media (max-width: 768px) {

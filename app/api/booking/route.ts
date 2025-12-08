@@ -1,12 +1,12 @@
 import { NextRequest } from 'next/server';
-import { RecommendationAgent } from '@/agents/recommendation-agent';
+import { BookingAgent } from '@/agents/booking-agent';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const { userResponse, clinicalSummary, preferences } = await req.json();
+    const { userResponse, clinicalSummary, patientInfo, selectedPsychiatrist } = await req.json();
 
     if (userResponse === undefined || userResponse === null) {
       return new Response(JSON.stringify({ error: 'User response is required' }), {
@@ -14,8 +14,6 @@ export async function POST(req: NextRequest) {
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    
-    const userResponseStr = String(userResponse);
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
@@ -25,14 +23,13 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const agent = new RecommendationAgent(apiKey);
-    
-    // Restore preferences if provided
-    if (preferences) {
-      agent['preferences'] = preferences;
-    }
-
-    const result = await agent.processPreferenceQuestion(userResponseStr, clinicalSummary || '');
+    const agent = new BookingAgent(apiKey);
+    const result = await agent.processBookingRequest(
+      String(userResponse),
+      clinicalSummary || '',
+      patientInfo || {},
+      selectedPsychiatrist || {}
+    );
 
     // Stream the response
     const stream = new ReadableStream({
@@ -43,13 +40,11 @@ export async function POST(req: NextRequest) {
           controller.enqueue(new TextEncoder().encode(chunk));
           await new Promise(resolve => setTimeout(resolve, 30));
         }
-        
-        // If psychiatrists are available, append them as JSON
-        if (result.psychiatrists && result.psychiatrists.length > 0) {
-          const psychiatristsJson = '\n\n' + JSON.stringify({ psychiatrists: result.psychiatrists }, null, 2);
-          controller.enqueue(new TextEncoder().encode(psychiatristsJson));
+        // If email was generated, append it as JSON
+        if (result.email) {
+          const emailJson = '\n\n' + JSON.stringify(result.email, null, 2);
+          controller.enqueue(new TextEncoder().encode(emailJson));
         }
-        
         controller.close();
       },
     });
@@ -62,7 +57,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Error in recommendation API:', error);
+    console.error('Error in booking API:', error);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

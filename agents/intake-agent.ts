@@ -86,7 +86,7 @@ CONVERSATION STYLE:
 - Avoid being robotic or clinical
 - If the patient seems distressed, acknowledge it briefly but continue gathering information
 
-When you have gathered sufficient information across all sections, ask: "Is there anything else you'd like to share before I summarize everything?"
+When you have gathered sufficient information across all sections, ask: "Is there anything else you'd like to share first?"
 
 Remember: Do not summarize or reflect back what the patient said. Just ask the next appropriate question.`;
   }
