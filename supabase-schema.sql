@@ -83,3 +83,4 @@ CREATE INDEX IF NOT EXISTS idx_clinical_summaries_created_at ON clinical_summari
 -- CREATE POLICY "Allow public insert access to bookings" ON bookings
 --   FOR INSERT WITH CHECK (true);
 
+
