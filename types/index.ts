@@ -62,6 +62,11 @@ export interface Psychiatrist {
   acceptingNewPatients: boolean;
   availability: string;
   bio?: string;
+  languages?: string[];
+  yearsOfExperience?: number;
+  additionalCredentials?: string[];
+  location?: string;
+  gender?: string;
 }
 
 export interface BookingEmail {

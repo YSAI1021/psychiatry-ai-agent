@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { Message, UserPreferences, Psychiatrist } from '@/types';
+import { filterPsychiatrists } from '@/utils/psychiatristDatabase';
 
 export class RecommendationAgent {
   private openai: OpenAI;
@@ -56,7 +57,44 @@ export class RecommendationAgent {
   private extractPreference(userResponse: string): void {
     const lowerResponse = userResponse.toLowerCase();
 
-    // Extract gender preference
+    // Extract location preference (asked first)
+    if (!this.preferences.location) {
+      if (lowerResponse.includes('no preference') || lowerResponse.includes("don't care") || lowerResponse.includes("doesn't matter")) {
+        this.preferences.location = 'no preference';
+      } else {
+        // Try to extract location keywords (cities, states, zip codes)
+        const locationKeywords = [
+          'new york', 'nyc', 'new york city',
+          'los angeles', 'la', 'california', 'ca',
+          'chicago', 'illinois', 'il',
+          'houston', 'texas', 'tx',
+          'phoenix', 'arizona', 'az',
+          'philadelphia', 'pennsylvania', 'pa',
+          'san antonio', 'san diego', 'dallas',
+          'miami', 'florida', 'fl',
+          'seattle', 'washington', 'wa',
+          'boston', 'massachusetts', 'ma',
+          'san francisco', 'sf',
+        ];
+        for (const keyword of locationKeywords) {
+          if (lowerResponse.includes(keyword)) {
+            this.preferences.location = keyword;
+            break;
+          }
+        }
+        // Check for zip code pattern
+        const zipMatch = lowerResponse.match(/\b\d{5}\b/);
+        if (zipMatch) {
+          this.preferences.location = zipMatch[0];
+        }
+        // If no keyword match and response is substantial, use it as location
+        if (!this.preferences.location && lowerResponse.length > 2 && !lowerResponse.includes('prefer')) {
+          this.preferences.location = userResponse.trim();
+        }
+      }
+    }
+
+    // Extract gender preference (asked second)
     if (!this.preferences.preferredGender) {
       if (lowerResponse.includes('male') || lowerResponse.includes('man')) {
         this.preferences.preferredGender = 'male';
@@ -64,52 +102,8 @@ export class RecommendationAgent {
         this.preferences.preferredGender = 'female';
       } else if (lowerResponse.includes('non-binary') || lowerResponse.includes('nonbinary')) {
         this.preferences.preferredGender = 'non-binary';
-      } else if (lowerResponse.includes('no preference') || lowerResponse.includes("don't care")) {
+      } else if (lowerResponse.includes('no preference') || lowerResponse.includes("don't care") || lowerResponse.includes("doesn't matter")) {
         this.preferences.preferredGender = 'no preference';
-      }
-    }
-
-    // Extract language preference
-    if (!this.preferences.preferredLanguage) {
-      const languages = ['english', 'spanish', 'mandarin', 'french', 'german', 'other'];
-      for (const lang of languages) {
-        if (lowerResponse.includes(lang)) {
-          this.preferences.preferredLanguage = lang;
-          break;
-        }
-      }
-    }
-
-    // Extract therapy style
-    if (!this.preferences.therapyStyle) {
-      if (lowerResponse.includes('cbt') || lowerResponse.includes('cognitive')) {
-        this.preferences.therapyStyle = 'CBT';
-      } else if (lowerResponse.includes('psychodynamic')) {
-        this.preferences.therapyStyle = 'psychodynamic';
-      } else if (lowerResponse.includes('dbt')) {
-        this.preferences.therapyStyle = 'DBT';
-      } else if (lowerResponse.includes('medication') || lowerResponse.includes('medication management')) {
-        this.preferences.therapyStyle = 'medication management';
-      }
-    }
-
-    // Extract location
-    if (!this.preferences.location) {
-      if (lowerResponse.includes('no preference') || lowerResponse.includes("don't care")) {
-        this.preferences.location = 'no preference';
-      } else {
-        // Try to extract location keywords
-        const locationKeywords = ['new york', 'nyc', 'los angeles', 'chicago', 'houston', 'phoenix', 'philadelphia', 'san antonio', 'san diego', 'dallas'];
-        for (const keyword of locationKeywords) {
-          if (lowerResponse.includes(keyword)) {
-            this.preferences.location = keyword;
-            break;
-          }
-        }
-        if (!this.preferences.location && lowerResponse.length > 3) {
-          // Use the response as location if it seems like a location
-          this.preferences.location = userResponse;
-        }
       }
     }
   }
@@ -123,92 +117,44 @@ export class RecommendationAgent {
 
   private getNextPreferenceQuestion(): string {
     if (!this.preferences.location) {
-      return "What is your preferred psychiatrist location? (e.g., specific area, city, or 'no preference')";
+      return "What is your preferred location for your psychiatrist? You can provide a city, state, zip code, or say 'no preference'.";
     }
     if (!this.preferences.preferredGender) {
-      return "What is your preferred gender for your psychiatrist? (e.g., male, female, non-binary, or no preference)";
+      return "Do you have a preferred gender for your psychiatrist? (e.g., male, female, non-binary, or no preference)";
     }
 
     return "Thank you! I have all the information I need.";
   }
 
   private async generateRecommendations(clinicalSummary: string): Promise<{ response: string; psychiatrists: Psychiatrist[] }> {
-    const preferencesText = Object.entries(this.preferences)
-      .filter(([_, value]) => value)
-      .map(([key, value]) => `${key}: ${value}`)
-      .join('\n');
+    // Query psychiatrist database based on preferences
+    const matchingPsychiatrists = filterPsychiatrists({
+      location: this.preferences.location,
+      preferredGender: this.preferences.preferredGender,
+    });
 
-    try {
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a recommendation agent that matches patients with psychiatrists. Generate 2-3 psychiatrist recommendations in JSON format.
-
-Return ONLY valid JSON in this exact format:
-{
-  "response": "A brief text message introducing the recommendations",
-  "psychiatrists": [
-    {
-      "id": "unique-id-1",
-      "name": "Dr. First Last",
-      "credential": "MD",
-      "subspecialty": "e.g., Depression & Anxiety, ADHD, Bipolar Disorder",
-      "inNetwork": true/false,
-      "acceptingNewPatients": true/false,
-      "availability": "e.g., Mon-Fri 9am-5pm",
-      "bio": "Brief professional bio (2-3 sentences)"
-    }
-  ]
-}`,
-          },
-          {
-            role: 'user',
-            content: `Clinical Summary:\n${clinicalSummary}\n\nPatient Preferences:\n${preferencesText}`,
-          },
-        ],
-        temperature: 0.7,
-        max_tokens: 1500,
-        response_format: { type: 'json_object' },
-      });
-
-      const content = completion.choices[0]?.message?.content || '{}';
-      const parsed = JSON.parse(content);
-      
+    if (matchingPsychiatrists.length === 0) {
       return {
-        response: parsed.response || 'Here are some psychiatrists that match your needs:',
-        psychiatrists: parsed.psychiatrists || [],
-      };
-    } catch (error) {
-      console.error('Error generating recommendations:', error);
-      // Return fallback data
-      return {
-        response: 'Here are some psychiatrists that match your needs:',
-        psychiatrists: [
-          {
-            id: '1',
-            name: 'Dr. Sarah Johnson',
-            credential: 'MD',
-            subspecialty: 'Depression & Anxiety',
-            inNetwork: true,
-            acceptingNewPatients: true,
-            availability: 'Mon-Fri 9am-5pm',
-            bio: 'Board-certified psychiatrist with 10+ years of experience specializing in mood disorders.',
-          },
-          {
-            id: '2',
-            name: 'Dr. Michael Chen',
-            credential: 'DO',
-            subspecialty: 'ADHD & Trauma',
-            inNetwork: false,
-            acceptingNewPatients: true,
-            availability: 'Tue-Thu 10am-6pm',
-            bio: 'Experienced psychiatrist focusing on ADHD and trauma-informed care.',
-          },
-        ],
+        response: "I couldn't find any psychiatrists matching your preferences. Would you like to try different search criteria?",
+        psychiatrists: [],
       };
     }
+
+    // Generate a simple introduction message (no treatment advice)
+    const locationText = this.preferences.location && this.preferences.location !== 'no preference' 
+      ? ` in ${this.preferences.location}` 
+      : '';
+    
+    const genderText = this.preferences.preferredGender && this.preferences.preferredGender !== 'no preference'
+      ? ` (${this.preferences.preferredGender})`
+      : '';
+
+    const response = `I found ${matchingPsychiatrists.length} psychiatrist${matchingPsychiatrists.length > 1 ? 's' : ''}${locationText}${genderText} that match your preferences. Here are the available options:`;
+
+    return {
+      response,
+      psychiatrists: matchingPsychiatrists,
+    };
   }
 
   getPreferences(): Partial<UserPreferences> {

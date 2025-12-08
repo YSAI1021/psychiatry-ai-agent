@@ -29,11 +29,71 @@ export default function SummaryForm({ clinicalSummary, onSubmit }: SummaryFormPr
     onSubmit(formData);
   };
 
+  const formatSummary = (text: string): string => {
+    if (!text) return '';
+    
+    // Remove code block markers if present
+    let formatted = text
+      .replace(/```[\s\S]*?```/g, '') // Remove code blocks
+      .replace(/`([^`]+)`/g, '$1') // Remove inline code
+      .trim();
+    
+    // Convert markdown-style headers to HTML
+    formatted = formatted
+      .replace(/^### (.*$)/gim, '<h4>$1</h4>')
+      .replace(/^## (.*$)/gim, '<h3>$1</h3>')
+      .replace(/^# (.*$)/gim, '<h2>$1</h2>');
+    
+    // Convert bullet points
+    const lines = formatted.split('\n');
+    const formattedLines: string[] = [];
+    let inList = false;
+    
+    lines.forEach((line, index) => {
+      const trimmedLine = line.trim();
+      if (!trimmedLine) {
+        if (inList) {
+          formattedLines.push('</ul>');
+          inList = false;
+        }
+        formattedLines.push('<br>');
+        return;
+      }
+      
+      // Check if it's a list item
+      if (/^[\*\-\+] (.+)$/.test(trimmedLine) || /^\d+\. (.+)$/.test(trimmedLine)) {
+        if (!inList) {
+          formattedLines.push('<ul>');
+          inList = true;
+        }
+        const content = trimmedLine.replace(/^[\*\-\d+\.\s]+/, '');
+        formattedLines.push(`<li>${content}</li>`);
+      } else {
+        if (inList) {
+          formattedLines.push('</ul>');
+          inList = false;
+        }
+        // Check if it's already a header
+        if (trimmedLine.startsWith('<h')) {
+          formattedLines.push(trimmedLine);
+        } else {
+          formattedLines.push(`<p>${trimmedLine}</p>`);
+        }
+      }
+    });
+    
+    if (inList) {
+      formattedLines.push('</ul>');
+    }
+    
+    return formattedLines.join('');
+  };
+
   return (
     <div className="summary-form-container">
       <div className="summary-form-header">
         <h2>Clinical Summary</h2>
-        <p className="summary-text">{clinicalSummary}</p>
+        <div className="summary-text" dangerouslySetInnerHTML={{ __html: formatSummary(clinicalSummary) }} />
       </div>
 
       <div className="form-section">
@@ -161,12 +221,65 @@ export default function SummaryForm({ clinicalSummary, onSubmit }: SummaryFormPr
 
         .summary-text {
           background: #f9fafb;
-          padding: 1rem;
+          padding: 1.5rem;
           border-radius: 8px;
           border: 1px solid #e5e7eb;
           color: #374151;
-          line-height: 1.6;
-          white-space: pre-wrap;
+          line-height: 1.8;
+          font-size: 0.95rem;
+        }
+
+        .summary-text h2 {
+          font-size: 1.25rem;
+          font-weight: 600;
+          color: #1f2937;
+          margin: 1.5rem 0 1rem 0;
+        }
+
+        .summary-text h2:first-child {
+          margin-top: 0;
+        }
+
+        .summary-text h3 {
+          font-size: 1.1rem;
+          font-weight: 600;
+          color: #1f2937;
+          margin: 1.25rem 0 0.75rem 0;
+        }
+
+        .summary-text h4 {
+          font-size: 1rem;
+          font-weight: 600;
+          color: #374151;
+          margin: 1rem 0 0.5rem 0;
+        }
+
+        .summary-text p {
+          margin: 0.75rem 0;
+          color: #374151;
+        }
+
+        .summary-text p:first-child {
+          margin-top: 0;
+        }
+
+        .summary-text p:last-child {
+          margin-bottom: 0;
+        }
+
+        .summary-text ul {
+          margin: 0.75rem 0;
+          padding-left: 1.5rem;
+          list-style-type: disc;
+        }
+
+        .summary-text li {
+          margin: 0.5rem 0;
+          color: #374151;
+        }
+
+        .summary-text br {
+          line-height: 1.8;
         }
 
         .form-section {

@@ -17,13 +17,12 @@ export default function Home() {
   return (
     <main className="main-container">
       <header className="header">
-        <h1 className="logo">PsyConnect Agent</h1>
+        <h1 className="logo">PsyConnect Agents</h1>
       </header>
 
       <div className="important-notice">
-        <span className="notice-icon">ℹ️</span>
         <span className="notice-text">
-          This is not a diagnostic or emergency service. If you are in crisis, please contact 988 (Suicide & Crisis Lifeline) or go to your nearest emergency room immediately.
+          This AI assistant does not provide diagnoses or emergency services. If you are experiencing a mental health emergency, please contact your local emergency services or the National Suicide Prevention Lifeline at 988.
         </span>
       </div>
 
@@ -38,7 +37,7 @@ export default function Home() {
           height: 100vh;
           max-width: 1200px;
           margin: 0 auto;
-          background: #f7f7f8;
+          background: #ffffff;
         }
 
         .header {
@@ -50,24 +49,16 @@ export default function Home() {
         .logo {
           font-size: 1.5rem;
           font-weight: 600;
-          color: #1f2937;
+          color: #111827;
         }
 
         .important-notice {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
           padding: 0.75rem 1.5rem;
-          background: #fef3c7;
-          border-bottom: 1px solid #fbbf24;
-          border-left: 4px solid #f59e0b;
-          font-size: 0.9rem;
-          color: #92400e;
-        }
-
-        .notice-icon {
-          font-size: 1.1rem;
-          flex-shrink: 0;
+          background: #ffffff;
+          border-bottom: 1px solid #e5e7eb;
+          font-size: 0.875rem;
+          color: #6b7280;
+          line-height: 1.5;
         }
 
         .notice-text {
@@ -79,7 +70,7 @@ export default function Home() {
           display: flex;
           flex-direction: column;
           overflow: hidden;
-          background: #f7f7f8;
+          background: #ffffff;
         }
 
         @media (max-width: 768px) {

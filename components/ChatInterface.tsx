@@ -6,6 +6,7 @@ import { detectTopics } from '@/utils/topicDetection';
 import PHQ9Questionnaire from './PHQ9Questionnaire';
 import SummaryForm from './SummaryForm';
 import PsychiatristCard from './PsychiatristCard';
+import PsychiatristProfile from './PsychiatristProfile';
 import { PatientInfo } from '@/types';
 
 interface ChatInterfaceProps {
@@ -214,19 +215,21 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
       // Handle recommendation follow-up questions
       if (currentAgent === 'recommendation' && psychiatrists.length > 0) {
         const lowerMessage = userMessage.toLowerCase();
-        if (lowerMessage.includes('yes') && lowerMessage.includes('learn more')) {
-          // User wants to see bio - this will be handled by viewingBio state
-        } else if (lowerMessage.includes('select') || lowerMessage.includes('choose')) {
-          // User selected a psychiatrist
-          const selected = psychiatrists.find(p => 
-            lowerMessage.includes(p.name.toLowerCase().split(' ')[1]?.toLowerCase() || '')
-          );
+        if (lowerMessage.includes('yes') && (lowerMessage.includes('know more') || lowerMessage.includes('learn more') || lowerMessage.includes('about'))) {
+          // User wants to see detailed profile - handled by viewingBio state via card click
+          // The message will prompt them to click "View Bio" on a card
+        } else if (lowerMessage.includes('select') || lowerMessage.includes('choose') || lowerMessage.includes('pick')) {
+          // Try to find psychiatrist by name in message
+          const selected = psychiatrists.find(p => {
+            const nameParts = p.name.toLowerCase().split(' ');
+            return nameParts.some(part => lowerMessage.includes(part));
+          });
           if (selected) {
             setSelectedPsychiatrist(selected);
             setCurrentAgent('booking');
             setMessages(prev => [
               ...prev,
-              { role: 'assistant', content: 'Would you like help reaching out to them to book an appointment?' },
+              { role: 'assistant', content: `You've selected ${selected.name}. Would you like help reaching out to them to book an appointment?` },
             ]);
           }
         }
@@ -317,11 +320,15 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
       <div className="chat-messages">
         {messages.map((msg, idx) => (
           <div key={idx} className={`message ${msg.role}`}>
+            {msg.role === 'assistant' && (
+              <div className="avatar">AI</div>
+            )}
             <div className="message-content">{msg.content}</div>
           </div>
         ))}
         {isLoading && messages[messages.length - 1]?.role !== 'assistant' && (
           <div className="message assistant">
+            <div className="avatar">AI</div>
             <div className="message-content">
               <span className="typing-indicator">●</span>
             </div>
@@ -333,6 +340,7 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
       {showPHQ9Message && (
         <div className="phq9-message">
           <div className="message assistant">
+            <div className="avatar">AI</div>
             <div className="message-content">
               Please complete the PHQ-9 questionnaire to help us understand your situation more accurately.
             </div>
@@ -382,21 +390,17 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
           ))}
           {!viewingBio && (
             <div className="message assistant">
+              <div className="avatar">AI</div>
               <div className="message-content">
-                Would you like to learn more about a specific psychiatrist?
+                Would you like to know more about any of these psychiatrists?
               </div>
             </div>
           )}
           {viewingBio && (
-            <div className="bio-modal">
-              <div className="bio-content">
-                <h3>{viewingBio.name}, {viewingBio.credential}</h3>
-                <p className="bio-text">{viewingBio.bio}</p>
-                <button onClick={() => setViewingBio(null)} className="btn-close">
-                  Close
-                </button>
-              </div>
-            </div>
+            <PsychiatristProfile
+              psychiatrist={viewingBio}
+              onClose={() => setViewingBio(null)}
+            />
           )}
         </div>
       )}
@@ -463,7 +467,7 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Type your message..."
+              placeholder="Share what brings you here today..."
               className="chat-input"
               rows={1}
               disabled={isLoading}
@@ -496,7 +500,7 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
           height: 100%;
           max-width: 800px;
           margin: 0 auto;
-          background: #f7f7f8;
+          background: #ffffff;
         }
 
         .chat-messages {
@@ -506,11 +510,14 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
           display: flex;
           flex-direction: column;
           gap: 1rem;
+          background: #ffffff;
         }
 
         .message {
           display: flex;
           margin-bottom: 0.5rem;
+          align-items: flex-start;
+          gap: 0.75rem;
         }
 
         .message.user {
@@ -519,6 +526,20 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
 
         .message.assistant {
           justify-content: flex-start;
+        }
+
+        .avatar {
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          background-color: #e5e7eb;
+          color: #6b7280;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.75rem;
+          font-weight: 600;
+          flex-shrink: 0;
         }
 
         .message-content {
@@ -530,13 +551,13 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
         }
 
         .message.user .message-content {
-          background-color: #19c37d;
-          color: white;
+          background-color: #4b5563;
+          color: #ffffff;
         }
 
         .message.assistant .message-content {
-          background-color: #ffffff;
-          color: #374151;
+          background-color: #f3f4f6;
+          color: #1f2937;
           border: 1px solid #e5e7eb;
         }
 
@@ -577,54 +598,6 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
           margin-bottom: 1rem;
         }
 
-        .bio-modal {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(0, 0, 0, 0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-        }
-
-        .bio-content {
-          background: white;
-          padding: 2rem;
-          border-radius: 12px;
-          max-width: 600px;
-          max-height: 80vh;
-          overflow-y: auto;
-        }
-
-        .bio-content h3 {
-          font-size: 1.5rem;
-          font-weight: 600;
-          color: #1f2937;
-          margin-bottom: 1rem;
-        }
-
-        .bio-text {
-          color: #374151;
-          line-height: 1.6;
-          margin-bottom: 1.5rem;
-        }
-
-        .btn-close {
-          padding: 0.75rem 1.5rem;
-          background-color: #f3f4f6;
-          color: #374151;
-          border: none;
-          border-radius: 6px;
-          font-weight: 600;
-          cursor: pointer;
-        }
-
-        .btn-close:hover {
-          background-color: #e5e7eb;
-        }
 
         .email-editor-wrapper {
           padding: 1.5rem;
@@ -708,7 +681,7 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
 
         .chat-input-container {
           padding: 1rem 1.5rem;
-          background: #f7f7f8;
+          background: #ffffff;
           border-top: 1px solid #e5e7eb;
         }
 
@@ -720,12 +693,12 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
           border-radius: 1.5rem;
           padding: 0.75rem 1rem;
           border: 1px solid #d1d5db;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-          transition: box-shadow 0.2s;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+          transition: box-shadow 0.2s, border-color 0.2s;
         }
 
         .chat-input-wrapper:focus-within {
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
           border-color: #9ca3af;
         }
 
@@ -753,9 +726,9 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
           justify-content: center;
           width: 32px;
           height: 32px;
-          border-radius: 0.375rem;
+          border-radius: 50%;
           border: none;
-          background-color: #19c37d;
+          background-color: #6b7280;
           color: white;
           cursor: pointer;
           transition: background-color 0.2s, transform 0.1s;
@@ -763,7 +736,7 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
         }
 
         .chat-send-btn:hover:not(:disabled) {
-          background-color: #16a269;
+          background-color: #4b5563;
           transform: scale(1.05);
         }
 
