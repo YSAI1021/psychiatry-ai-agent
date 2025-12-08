@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { useAppStore } from '@/lib/store';
+import { useAppStore, IntakeData, ClinicalSummary } from '@/lib/store';
 import { AgentType } from '@/lib/openai';
 import { ChatContainer } from '@/components/chat/chat-container';
 import { ChatInput } from '@/components/chat/chat-input';
@@ -12,10 +12,9 @@ import { EmailPreview } from '@/components/email-preview';
 import { Button } from '@/components/ui/button';
 import { Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
-import { generateIntakeResponse, parsePHQ9Responses, calculatePHQ9Score } from '@/lib/agents/intake-agent';
-import { generateClinicalSummary } from '@/lib/agents/summary-agent';
-import { generateRecommendationResponse, filterPsychiatrists } from '@/lib/agents/recommendation-agent';
-import { generateBookingEmail, saveBooking, updateBookingStatus, sendEmail } from '@/lib/agents/booking-agent';
+import { parsePHQ9Responses, calculatePHQ9Score } from '@/lib/agents/intake-agent';
+import { filterPsychiatrists } from '@/lib/agents/recommendation-agent';
+import { saveBooking, updateBookingStatus, sendEmail } from '@/lib/agents/booking-agent';
 import { supabase } from '@/lib/supabase';
 
 export default function Home() {
@@ -92,6 +91,48 @@ export default function Home() {
     }
   }, [clinicalSummary?.confirmed, currentAgent]);
 
+  /**
+   * Helper function to call the chat API route
+   * This ensures OpenAI calls happen server-side where the API key is available
+   */
+  const callChatAPI = async (payload: {
+    agentType: AgentType;
+    userMessage: string;
+    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
+    intakeData?: Partial<IntakeData>;
+    clinicalSummary?: ClinicalSummary;
+    recommendationPreferences?: Partial<RecommendationPreferences>;
+    selectedPsychiatrist?: any;
+  }) => {
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        console.error('[Client] API error response:', {
+          status: response.status,
+          data,
+        });
+        throw new Error(data.error || 'API request failed');
+      }
+
+      return data.data;
+    } catch (error: any) {
+      console.error('[Client] Error calling chat API:', {
+        message: error.message,
+        stack: error.stack,
+      });
+      throw error;
+    }
+  };
+
   const handleSend = async () => {
     if (!inputValue.trim() || isLoading) return;
 
@@ -103,11 +144,14 @@ export default function Home() {
 
     try {
       await processMessage(userMessage);
-    } catch (error) {
-      console.error('Error processing message:', error);
+    } catch (error: any) {
+      console.error('[Client] Error processing message:', {
+        message: error.message,
+        stack: error.stack,
+      });
       addMessage({
         role: 'assistant',
-        content: 'I apologize, but I encountered an error. Please try again or refresh the page.',
+        content: error.message || 'I apologize, but I encountered an error. Please try again or refresh the page.',
       });
     } finally {
       setLoading(false);
@@ -150,11 +194,16 @@ export default function Home() {
       });
     }
 
-    // Generate intake response
-    const response = await generateIntakeResponse(conversationHistory, intakeData);
+    // Generate intake response via API (server-side)
+    const response = await callChatAPI({
+      agentType: AgentType.INTAKE,
+      userMessage,
+      conversationHistory,
+      intakeData,
+    });
 
     // Update intake data
-    if (Object.keys(response.intakeData).length > 0) {
+    if (Object.keys(response.intakeData || {}).length > 0) {
       updateIntakeData({
         ...response.intakeData,
         completionPercentage: response.completionPercentage,
@@ -180,10 +229,13 @@ export default function Home() {
   const transitionToSummary = async () => {
     setCurrentAgent(AgentType.SUMMARY);
     
-    const summaryResponse = await generateClinicalSummary(
+    // Generate clinical summary via API (server-side)
+    const summaryResponse = await callChatAPI({
+      agentType: AgentType.SUMMARY,
+      userMessage: 'Generate summary',
+      conversationHistory: messages.map(m => ({ role: m.role, content: m.content })),
       intakeData,
-      messages.map(m => ({ role: m.role, content: m.content }))
-    );
+    });
 
     setClinicalSummary(summaryResponse.summary);
     
@@ -240,14 +292,16 @@ export default function Home() {
     userMessage: string,
     conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>
   ) => {
-    // Extract preferences from message
-    const response = await generateRecommendationResponse(
+    // Generate recommendation response via API (server-side)
+    const response = await callChatAPI({
+      agentType: AgentType.RECOMMENDATION,
+      userMessage,
       conversationHistory,
-      recommendationPreferences
-    );
+      recommendationPreferences,
+    });
 
     // Update preferences
-    if (Object.keys(response.preferences).length > 0) {
+    if (Object.keys(response.preferences || {}).length > 0) {
       updateRecommendationPreferences(response.preferences);
     }
 
@@ -261,12 +315,16 @@ export default function Home() {
     if (response.psychiatrists && response.psychiatrists.length > 0) {
       setPsychiatrists(response.psychiatrists);
       setRecommendationsReady(true);
-    } else if (response.message.includes('found')) {
-      // Try to filter with current preferences
-      const filtered = await filterPsychiatrists(recommendationPreferences);
-      if (filtered.length > 0) {
-        setPsychiatrists(filtered);
-        setRecommendationsReady(true);
+    } else if (response.message?.includes('found')) {
+      // Try to filter with current preferences (client-side filtering from Supabase)
+      try {
+        const filtered = await filterPsychiatrists(response.preferences || recommendationPreferences);
+        if (filtered.length > 0) {
+          setPsychiatrists(filtered);
+          setRecommendationsReady(true);
+        }
+      } catch (error) {
+        console.error('[Client] Error filtering psychiatrists:', error);
       }
     }
   };
@@ -279,11 +337,14 @@ export default function Home() {
         userMessage.toLowerCase().includes('send') ||
         userMessage.toLowerCase().includes('yes')) {
       
-      // Generate email
-      const bookingResponse = await generateBookingEmail(
+      // Generate email via API (server-side)
+      const bookingResponse = await callChatAPI({
+        agentType: AgentType.BOOKING,
+        userMessage,
+        conversationHistory: messages.map(m => ({ role: m.role, content: m.content })),
         selectedPsychiatrist,
-        clinicalSummary
-      );
+        clinicalSummary,
+      });
 
       setEmailDraft(bookingResponse.emailDraft);
       
@@ -305,12 +366,15 @@ export default function Home() {
     setSelectedPsychiatrist(psychiatrist);
     setCurrentAgent(AgentType.BOOKING);
 
-    // Generate email draft
+    // Generate email draft via API (server-side)
     if (clinicalSummary) {
-      const bookingResponse = await generateBookingEmail(
-        psychiatrist,
-        clinicalSummary
-      );
+      const bookingResponse = await callChatAPI({
+        agentType: AgentType.BOOKING,
+        userMessage: 'Generate booking email',
+        conversationHistory: messages.map(m => ({ role: m.role, content: m.content })),
+        selectedPsychiatrist: psychiatrist,
+        clinicalSummary,
+      });
 
       setEmailDraft(bookingResponse.emailDraft);
 
