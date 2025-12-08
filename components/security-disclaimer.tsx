@@ -1,26 +1,23 @@
 'use client';
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Alert } from '@/components/ui/alert';
 import { Info } from 'lucide-react';
 
 export function SecurityDisclaimer() {
   return (
-    <Alert className="mb-2 border-border/50 bg-muted/30 py-1.5">
-      <Info className="h-3 w-3 text-muted-foreground shrink-0" />
-      <AlertTitle className="text-xs font-medium text-muted-foreground">
-        ⚠️ Important Notice
-      </AlertTitle>
-      <AlertDescription className="text-xs text-muted-foreground/80 leading-tight">
-        This is not a diagnostic or emergency service. If you are in crisis, please contact{' '}
+    <Alert className="mb-2 border-border/50 bg-muted/30 py-3 px-4 rounded-lg flex items-start gap-3">
+      <Info className="h-5 w-5 mt-1 text-muted-foreground shrink-0" />
+      <div className="text-sm text-muted-foreground">
+        <strong className="font-semibold text-foreground">Important:</strong>{' '}
+        This AI assistant does not provide diagnoses or emergency services. If you are experiencing a
+        mental health emergency, please contact your local emergency services or the{' '}
         <a
           href="tel:988"
-          className="font-medium underline hover:no-underline text-foreground/90"
+          className="underline text-foreground hover:no-underline"
         >
-          988
-        </a>{' '}
-        (Suicide & Crisis Lifeline) or go to your nearest emergency room immediately.
-      </AlertDescription>
+          National Suicide Prevention Lifeline at 988
+        </a>.
+      </div>
     </Alert>
   );
 }
-

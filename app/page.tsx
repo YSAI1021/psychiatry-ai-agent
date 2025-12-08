@@ -9,10 +9,11 @@ import { SecurityDisclaimer } from '@/components/security-disclaimer';
 import { ClinicalSummaryView } from '@/components/clinical-summary-view';
 import { PsychiatristCard } from '@/components/psychiatrist-card';
 import { EmailPreview } from '@/components/email-preview';
+import { PHQ9Form } from '@/components/phq9-form';
 import { Button } from '@/components/ui/button';
 import { Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
-import { parsePHQ9Responses, parsePHQ9Response, calculatePHQ9Score } from '@/lib/agents/intake-agent';
+import { parsePHQ9Responses, parsePHQ9Response, calculatePHQ9Score, isReadyForPHQ9Form, isReadyForSummary } from '@/lib/agents/intake-agent';
 import { filterPsychiatrists } from '@/lib/agents/recommendation-agent';
 import { saveBooking, updateBookingStatus, sendEmail } from '@/lib/agents/booking-agent';
 import { supabase } from '@/lib/supabase';
@@ -40,6 +41,7 @@ export default function Home() {
   const [inputValue, setInputValue] = useState('');
   const [psychiatrists, setPsychiatrists] = useState<any[]>([]);
   const [recommendationsReady, setRecommendationsReady] = useState(false);
+  const [showPHQ9Form, setShowPHQ9Form] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { theme, setTheme } = useTheme();
 
@@ -249,10 +251,18 @@ export default function Home() {
 
     // Update intake data
     if (Object.keys(response.intakeData || {}).length > 0) {
-      updateIntakeData({
+      const updatedData = {
         ...response.intakeData,
         completionPercentage: response.completionPercentage,
-      });
+      };
+      updateIntakeData(updatedData);
+      
+      // Check if ready for PHQ-9 form (intake complete, patient informed about form)
+      const readyForPHQ9 = isReadyForPHQ9Form(updatedData);
+      if (readyForPHQ9 && !showPHQ9Form && !updatedData.phq9Responses) {
+        // Show PHQ-9 form instead of proceeding to summary
+        setShowPHQ9Form(true);
+      }
     }
 
     // Add assistant message
@@ -261,18 +271,19 @@ export default function Home() {
       content: response.message,
       agent: AgentType.INTAKE,
     });
-
-    // Check if ready to proceed to summary
-    // Must have: all PHQ-9 items, patient confirmed readiness, and 75%+ completion
-    if (response.shouldContinue) {
-      // Transition to summary agent
-      setTimeout(async () => {
-        await transitionToSummary();
-      }, 1000);
-    }
   };
 
-  const transitionToSummary = async () => {
+  const handlePHQ9Complete = async (responses: number[], score: number) => {
+    // PHQ-9 form completed, now proceed to summary
+    setShowPHQ9Form(false);
+    
+    // Update intake data with PHQ-9 results
+    updateIntakeData({
+      phq9Responses: responses,
+      phq9Score: score,
+    });
+    
+    // Transition to summary agent
     setCurrentAgent(AgentType.SUMMARY);
     
     // Generate clinical summary via API (server-side)
@@ -280,7 +291,7 @@ export default function Home() {
       agentType: AgentType.SUMMARY,
       userMessage: 'Generate summary',
       conversationHistory: messages.map(m => ({ role: m.role, content: m.content })),
-      intakeData,
+      intakeData: { ...intakeData, phq9Responses: responses, phq9Score: score },
     });
 
     setClinicalSummary(summaryResponse.summary);
@@ -577,9 +588,16 @@ export default function Home() {
               </div>
             )}
 
+            {/* PHQ-9 Form - shown after intake completion */}
+            {showPHQ9Form && currentAgent === AgentType.INTAKE && (
+              <div className="mb-6 px-4">
+                <PHQ9Form onComplete={handlePHQ9Complete} />
+              </div>
+            )}
+
             {/* Clinical Summary View - shown when summary agent is active and not confirmed */}
             {currentAgent === AgentType.SUMMARY && clinicalSummary && !clinicalSummary.confirmed && (
-              <div className="mb-4">
+              <div className="mb-4 px-4">
                 <ClinicalSummaryView />
               </div>
             )}
@@ -624,7 +642,18 @@ export default function Home() {
               value={inputValue}
               onChange={setInputValue}
               onSend={handleSend}
-              disabled={isLoading}
+              disabled={isLoading || showPHQ9Form}
+              placeholder={
+                showPHQ9Form
+                  ? 'Please complete the screening questions above...'
+                  : currentAgent === AgentType.INTAKE
+                  ? 'Share what brings you here today...'
+                  : currentAgent === AgentType.SUMMARY
+                  ? 'Review your summary...'
+                  : currentAgent === AgentType.RECOMMENDATION
+                  ? 'Answer questions about your preferences...'
+                  : 'Tell me about your booking preferences...'
+              }
             />
           </div>
         </div>

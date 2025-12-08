@@ -62,12 +62,19 @@ export function calculateCompletion(data: Partial<IntakeData>): number {
  * - At least 75% of other fields completed
  */
 export function isReadyForSummary(data: Partial<IntakeData>): boolean {
-  const phq9Complete = !!(data.phq9Responses && data.phq9Responses.length === 9);
+  // PHQ-9 is handled separately via form, so we only need intake completion and patient readiness
   const patientReady = data.patientReadyForSummary === true;
   const completionGood = calculateCompletion(data) >= 75;
-  
-  // All three conditions must be met
-  return phq9Complete && patientReady && completionGood;
+
+  // Patient must be ready and have adequate intake data
+  return patientReady && completionGood;
+}
+
+export function isReadyForPHQ9Form(data: Partial<IntakeData>): boolean {
+  // Ready for PHQ-9 form when intake is complete and patient has been informed
+  const patientReady = data.patientReadyForSummary === true;
+  const completionGood = calculateCompletion(data) >= 75;
+  return patientReady && completionGood;
 }
 
 /**
@@ -182,31 +189,17 @@ export async function generateIntakeResponse(
   }
 
   const completion = calculateCompletion(currentData);
-  const needsPHQ9 = !currentData.phq9Responses || currentData.phq9Responses.length !== 9;
+  // PHQ-9 will be collected via separate form, not in chat
   const patientReady = currentData.patientReadyForSummary === true;
-  const allFieldsComplete = completion >= 75 && !needsPHQ9;
-
-  // Determine which depression symptom question to ask (if needed)
-  const currentResponses = currentData.phq9Responses || [];
-  const questionsToAsk = [
-    "Over the last two weeks, how often have you had little interest or pleasure in doing things?",
-    "Over the last two weeks, how often have you felt down, depressed, or hopeless?",
-    "Over the last two weeks, how often have you had trouble falling asleep or staying asleep, or sleeping too much?",
-    "Over the last two weeks, how often have you felt tired or had little energy?",
-    "Over the last two weeks, how often have you had poor appetite or overeating?",
-    "Over the last two weeks, how often have you felt bad about yourself - or that you are a failure or have let yourself or your family down?",
-    "Over the last two weeks, how often have you had trouble concentrating on things, such as reading the newspaper or watching television?",
-    "Over the last two weeks, how often have you been moving or speaking so slowly that other people could have noticed? Or the opposite - being so fidgety or restless that you have been moving around a lot more than usual?",
-    "Over the last two weeks, how often have you had thoughts that you would be better off dead, or of hurting yourself?",
-  ];
-  const nextQuestionIndex = currentResponses.length;
-  const hasAllQuestions = nextQuestionIndex >= 9;
+  const allFieldsComplete = completion >= 75;
 
   // Build system prompt with improved instructions
   let systemPrompt = `You are a friendly, conversational psychiatric intake agent. Your role is to:
 - Ask natural, human questions about the patient's mental health
 - Keep responses brief and conversational (1-2 sentences max)
 - Guide the conversation to gather: chief complaint, history of present illness, past psychiatric history, medications, safety concerns, substance use, and functional impact
+- Ask about symptoms naturally: sleep, appetite, energy, concentration, mood, and any thoughts of self-harm
+- Use everyday language, not medical terms
 
 AGENT LANGUAGE STYLE - CRITICAL:
 - Use a simple, human, conversational tone - NOT clinical or overly formal
@@ -223,37 +216,30 @@ AGENT LANGUAGE STYLE - CRITICAL:
   * Long technical explanations
 - Focus on helpful transitions, warm clarity, and smooth flow
 
-CRITICAL REQUIREMENTS FOR DEPRESSION SYMPTOMS:
-${needsPHQ9 ? `
-1. DEPRESSION SYMPTOMS: You MUST ask about all 9 depression symptom questions before proceeding. You have collected ${currentResponses.length} of 9 so far.
-   - NEVER mention "PHQ-9", "screening", "questionnaire", or any technical terms to the patient
-   - Ask ONE question at a time in a natural, conversational way
-   - Accept natural language answers (e.g., "I'd say 2", "more than half the days", "probably a 2", "nearly every day")
-   - After getting a valid answer, IMMEDIATELY move to the next question
-   - DO NOT repeat or echo the patient's answer back to them
-   - Use brief acknowledgments: "Thanks" or "Got it" then immediately ask the next question
-   - If the answer is unclear or vague, ask for clarification ONCE: "Just to confirm — would you say 2 or 3?" or "Would you say: not at all, several days, more than half the days, or nearly every day?"
-   - DO NOT repeat the same question more than once unless the user explicitly asks you to
-   - Example good flow:
-     Agent: "Over the last two weeks, how often have you had little interest or pleasure in doing things?"
-     Patient: "I'd say more than half the days."
-     Agent: "Thanks. Over the last two weeks, how often have you felt down, depressed, or hopeless?" (NOT: "I'd say more than half the days.")
-
-   ${nextQuestionIndex < 9 ? `NEXT QUESTION TO ASK: "${questionsToAsk[nextQuestionIndex]}"` : 'All 9 questions have been asked.'}
-` : 'All depression symptom questions have been completed.'}
-
-2. TIME FRAME AWARENESS: When asking about symptoms, ALWAYS ask how long each symptom has been present.
+CRITICAL REQUIREMENTS:
+1. DO NOT ask structured PHQ-9 questions or mention "PHQ-9", "screening", or "questionnaire" to the patient
+2. Ask about symptoms naturally in conversation:
+   - Sleep patterns (trouble sleeping, sleeping too much)
+   - Appetite changes (eating more or less)
+   - Energy levels (feeling tired, low energy)
+   - Concentration (trouble focusing, making decisions)
+   - Mood (feeling down, hopeless, anxious)
+   - Interest in activities (loss of interest or pleasure)
+   - Self-perception (feeling bad about yourself)
+   - Physical symptoms (moving slowly or restlessness)
+   - Safety (thoughts of self-harm or suicide)
+3. TIME FRAME AWARENESS: When asking about symptoms, ALWAYS ask how long each symptom has been present.
    - After learning about a symptom, ask: "How long have you been experiencing [symptom]?" or "When did [symptom] start?"
    - Collect duration information for all symptoms to support diagnosis
    - Examples: "3 months", "about 6 weeks", "since last year"
 
-3. GENERAL CLARIFICATION: If patient gives unclear answers or says "I don't know" or "not sure", DO NOT repeat the same question.
+4. GENERAL CLARIFICATION: If patient gives unclear answers or says "I don't know" or "not sure", DO NOT repeat the same question.
    Instead, clarify or rephrase to help them understand.
    Example: "When I ask about 'feeling tired,' I mean physical or mental fatigue. Could you describe what you've experienced?"
 
-4. Current completion: ${completion}% - you need at least 75% to be ready for summary
-${allFieldsComplete && !patientReady ? '5. PATIENT READINESS CHECKPOINT: All required information (including all 9 depression symptom questions) is collected. Now you MUST ask: "Is there anything else you\'d like to share before we move on?" Only proceed to summary after patient confirms they are done (yes, nothing else, ready, etc.).' : ''}
-${allFieldsComplete && patientReady ? '6. READY: Patient has confirmed readiness. You may now indicate readiness to proceed to clinical summary.' : ''}`;
+5. Current completion: ${completion}% - you need at least 75% to be ready for the screening form
+${allFieldsComplete && !patientReady ? '6. PATIENT READINESS CHECKPOINT: Once you have gathered adequate information about their symptoms and history, you MUST say: "Thanks for sharing all of that. Before we move on, I\'d like you to fill out a short 9-question form. This helps your provider understand your symptoms a bit better." After saying this, indicate readiness to proceed to the screening form. Do NOT ask PHQ-9 questions in the chat - they will be handled by a separate form.' : ''}
+${allFieldsComplete && patientReady ? '7. READY: Patient has been informed about the screening form. Indicate that they should proceed to fill out the form.' : ''}`;
 
   const messages = [
     { role: 'system' as const, content: systemPrompt },

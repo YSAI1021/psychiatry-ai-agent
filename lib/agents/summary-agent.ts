@@ -21,6 +21,24 @@ export interface SummaryAgentResponse {
 }
 
 /**
+ * Get PHQ-9 severity interpretation from score
+ * Mapping:
+ * 0-4: Minimal
+ * 5-9: Mild
+ * 10-14: Moderate
+ * 15-19: Moderately Severe
+ * 20-27: Severe
+ */
+function getPHQ9Severity(score: number): string {
+  if (score >= 0 && score <= 4) return 'Minimal';
+  if (score >= 5 && score <= 9) return 'Mild';
+  if (score >= 10 && score <= 14) return 'Moderate';
+  if (score >= 15 && score <= 19) return 'Moderately Severe';
+  if (score >= 20 && score <= 27) return 'Severe';
+  return 'Unknown';
+}
+
+/**
  * Generate clinical summary using psychiatric interview format
  * 
  * Format based on Table 19.2 Psychiatric Interview:
@@ -43,6 +61,9 @@ export async function generateClinicalSummary(
     throw new Error('OpenAI client not configured');
   }
 
+  const phq9Score = intakeData.phq9Score || 0;
+  const phq9Severity = getPHQ9Severity(phq9Score);
+
   const systemPrompt = `You are a professional psychiatric summary agent. Generate a concise but complete clinical summary in natural sentence format.
 
 AGENT LANGUAGE STYLE:
@@ -62,7 +83,12 @@ REQUIRED STRUCTURE (based on DSM-5 psychiatric interview format):
 6. Medical/substance use history: Relevant medical conditions, alcohol, drugs, tobacco use (if mentioned)
 7. Mental status observations: Observable or inferred mental status (brief, professional)
 8. Symptoms with duration and severity: List all symptoms with specific durations and severity levels
-9. PHQ-9 score: ${intakeData.phq9Score || 'Not completed'} / 27 (include severity interpretation: minimal/mild/moderate/moderately severe/severe)
+9. PHQ-9 Screening:
+   - Total Score: ${phq9Score} / 27
+   - Severity: ${phq9Severity} Depression
+   - Include this as a separate section in the clinical summary with the exact format:
+     "PHQ-9 Screening: Total Score: ${phq9Score} / 27. Severity: ${phq9Severity} Depression."
+   - This section should appear in the summary text for provider reference
 10. Safety concerns: Suicidal ideation, self-harm, harm to others (if any, be specific)
 11. Functional impact: How symptoms affect daily life, work, relationships (1-2 sentences)
 12. Preferences: Any treatment preferences, therapy type preferences mentioned
