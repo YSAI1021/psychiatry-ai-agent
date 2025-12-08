@@ -13,7 +13,8 @@
  */
 
 import { openai } from '../openai';
-import { ClinicalSummary, Psychiatrist } from '../store';
+import { ClinicalSummary } from '../store';
+import { Psychiatrist } from '../supabase';
 import { supabase, Booking } from '../supabase';
 
 export interface BookingAgentResponse {
