@@ -193,49 +193,68 @@ export async function generateIntakeResponse(
   const patientReady = currentData.patientReadyForSummary === true;
   const allFieldsComplete = completion >= 75;
 
+  // Analyze conversation history for covered topics
+  const { topics: coveredTopics, summary: coveredTopicsSummary } = identifyCoveredTopics(conversationHistory);
+  
+  // Build context of what we already know (fact memory)
+  const factMemory = buildFactMemory(currentData, conversationHistory);
+
   // Build system prompt with improved instructions
-  let systemPrompt = `You are a friendly, conversational psychiatric intake agent. Your role is to:
-- Ask natural, human questions about the patient's mental health
-- Keep responses brief and conversational (1-2 sentences max)
-- Guide the conversation to gather: chief complaint, history of present illness, past psychiatric history, medications, safety concerns, substance use, and functional impact
-- Ask about symptoms naturally: sleep, appetite, energy, concentration, mood, and any thoughts of self-harm
-- Use everyday language, not medical terms
+  let systemPrompt = `You are a psychiatric intake assistant conducting a conversational interview.
 
-AGENT LANGUAGE STYLE - CRITICAL:
-- Use a simple, human, conversational tone - NOT clinical or overly formal
-- NEVER repeat the patient's answer back to them verbatim
-- After receiving an answer, use brief acknowledgments like:
-  * "Thanks for sharing that."
-  * "Got it — now, let's talk about..."
-  * "Thanks. Next..."
-- Only repeat information if clarification is needed (e.g., "Just to confirm — would you say 2 or 3?")
-- Avoid:
-  * Echoing exact phrases from patient responses
-  * Over-apologizing
-  * Explaining medical tools or technical terms
-  * Long technical explanations
-- Focus on helpful transitions, warm clarity, and smooth flow
+Your goal is to help a psychiatrist by collecting key clinical details from the patient through a friendly and empathetic dialogue. Focus on these psychiatric intake categories:
 
-1. DO NOT ask structured PHQ-9 questions or mention "PHQ-9", "screening", or "questionnaire" to the patient
-2. Ask about symptoms naturally in conversation:
-   - Sleep patterns (trouble sleeping, sleeping too much, duration)
-   - Appetite changes (eating more or less, duration)
-   - Energy levels (feeling tired, low energy, duration)
-   - Concentration (trouble focusing, making decisions, duration)
-   - Mood (feeling down, hopeless, anxious, duration)
-   - Interest in activities (loss of interest or pleasure, duration)
-   - Self-perception (feeling bad about yourself, duration)
-   - Physical symptoms (moving slowly or restlessness, duration)
-   - Safety (thoughts of self-harm or suicide)
-3. TIME FRAME AWARENESS: When learning about a symptom, ask how long it's been present.
-   - Ask: "How long have you been experiencing [symptom]?" or "When did [symptom] start?"
-   - BUT only if duration hasn't already been mentioned in the conversation
-4. If patient gives unclear answers or says "I don't know", DO NOT repeat the same question.
-   Instead, clarify or rephrase to help them understand.
-5. Current completion: ${completion}% - you need at least 75% to be ready for the screening form
+1. Chief complaint - Primary reason for seeking care
+2. History of present illness - Current symptoms, when they started, how long they've lasted
+3. Past psychiatric history - Prior diagnoses, treatments, medications, hospitalizations
+4. Personal and family history - Background information, family mental health history
+5. Medical and substance use history - Medical conditions, alcohol, drugs, tobacco
+6. Mental status - Observable signs (inferred from conversation)
+7. Functional impairment - Impact on work, sleep, relationships, daily activities
+8. Recent life changes or stressors - Major events, losses, transitions
 
-${allFieldsComplete && !patientReady ? '6. PATIENT READINESS CHECKPOINT: Once you have gathered adequate information, ask: "Is there anything else you\'d like to share before I summarize everything?" Then say: "Thanks for sharing all of that. Before we move on, I\'d like you to fill out a short 9-question form. This helps your provider understand your symptoms a bit better."' : ''}
-${allFieldsComplete && patientReady ? '7. READY: Patient has been informed about the screening form. They should proceed to fill out the form.' : ''}`;
+CRITICAL CONVERSATIONAL RULES - YOU MUST FOLLOW THESE:
+1. DO NOT repeat or summarize what the patient has said
+   - Never say "You mentioned earlier..." or "It sounds like you're feeling..."
+   - Never mirror or rephrase the patient's message
+   - Do not reflect back what they just told you
+   - Simply acknowledge briefly and move forward
+
+2. DO NOT ask about topics already discussed
+   - If a topic has already been addressed by the patient, skip it entirely
+   - Examples: If they already talked about sleep, don't ask about sleep again
+   - If they already gave symptom duration, don't ask "how long" again
+
+3. Ask ONE question at a time
+   - Wait for the patient's answer before asking the next question
+   - Keep a calm, conversational tone
+   - Use natural language, not robotic or clinical
+
+4. If the answer is unclear, gently ask for clarification
+   - Do NOT re-ask the original question verbatim
+   - Rephrase or provide context to help them understand
+   - Example: "When I ask about sleep, I mean both quantity and quality - are you getting enough sleep, and is the sleep restful?"
+
+5. Use brief acknowledgments only
+   - "Thanks for sharing that."
+   - "Got it."
+   - "I understand."
+   - Then immediately move to the next question
+
+6. At the end, ask: "Is there anything else you'd like to share before I summarize everything?"
+
+WHAT WE ALREADY KNOW (DO NOT ASK ABOUT THESE AGAIN):
+${coveredTopicsSummary}
+${factMemory.length > 0 ? factMemory.filter(f => !f.startsWith('Covered topics:')).join('\n') : ''}
+
+ADDITIONAL REQUIREMENTS:
+- DO NOT ask structured PHQ-9 questions or mention "PHQ-9", "screening", or "questionnaire" to the patient
+- Ask about symptoms naturally in conversation using everyday language
+- If patient gives unclear answers, DO NOT repeat the same question - instead clarify or rephrase
+- Current completion: ${completion}% - you need at least 75% to be ready for the screening form
+
+${allFieldsComplete && !patientReady ? 'PATIENT READINESS CHECKPOINT: Once you have gathered adequate information, ask: "Is there anything else you\'d like to share before I summarize everything?" Then say: "Thanks for sharing all of that. Before we move on, I\'d like you to fill out a short 9-question form. This helps your provider understand your symptoms a bit better."' : ''}
+${allFieldsComplete && patientReady ? 'READY: Patient has been informed about the screening form. They should proceed to fill out the form.' : ''}`;
 
   const messages = [
     { role: 'system' as const, content: systemPrompt },
@@ -320,12 +339,74 @@ ${allFieldsComplete && patientReady ? '7. READY: Patient has been informed about
 }
 
 /**
- * Build a human-readable fact memory string from current intake data
+ * Scan conversation history to identify topics that have already been discussed
+ * Returns a set of covered topics and a human-readable summary string
+ */
+function identifyCoveredTopics(
+  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>
+): { topics: Set<string>; summary: string } {
+  const topics = new Set<string>();
+  const topicKeywords: Record<string, string[]> = {
+    sleep: ['sleep', 'sleeping', 'insomnia', 'tired', 'exhausted', 'wake', 'rest', 'nap', 'bedtime', 'sleepless'],
+    mood: ['mood', 'feeling', 'feelings', 'depressed', 'depression', 'sad', 'happy', 'down', 'hopeless', 'emotions', 'emotional'],
+    energy: ['energy', 'energetic', 'tired', 'fatigue', 'exhausted', 'lethargic', 'lethargy', 'worn out', 'drained'],
+    appetite: ['appetite', 'eating', 'hungry', 'food', 'meal', 'weight', 'gain', 'loss', 'overeating', 'undereating'],
+    anxiety: ['anxiety', 'anxious', 'worried', 'worry', 'panic', 'nervous', 'fear', 'fearful', 'stressed', 'stress'],
+    stress: ['stress', 'stressed', 'pressure', 'overwhelmed', 'overwhelming', 'strain', 'tense', 'tension'],
+    medication: ['medication', 'meds', 'medicine', 'prescription', 'drug', 'taking', 'pills', 'dose', 'dosage', 'pharmacy'],
+    relationships: ['relationship', 'partner', 'spouse', 'family', 'friends', 'social', 'isolated', 'lonely', 'support', 'conflict'],
+    work: ['work', 'job', 'employment', 'career', 'boss', 'colleague', 'workplace', 'office', 'performance', 'productivity'],
+    'suicidal ideation': ['suicide', 'suicidal', 'kill myself', 'end my life', 'die', 'death', 'self-harm', 'hurt myself', 'not want to live'],
+    concentration: ['concentrate', 'concentration', 'focus', 'focused', 'attention', 'distracted', 'memory', 'forget', 'thinking'],
+    interest: ['interest', 'interested', 'pleasure', 'enjoy', 'enjoyment', 'hobby', 'activities', 'motivation', 'motivated'],
+  };
+
+  // Scan all user messages for topic keywords
+  const allUserMessages = conversationHistory
+    .filter(msg => msg.role === 'user')
+    .map(msg => msg.content.toLowerCase());
+
+  for (const [topic, keywords] of Object.entries(topicKeywords)) {
+    for (const message of allUserMessages) {
+      if (keywords.some(keyword => message.includes(keyword))) {
+        topics.add(topic);
+        break;
+      }
+    }
+  }
+
+  // Also check structured data for additional topics
+  // This will be enhanced with currentData in the calling function
+
+  const topicsArray = Array.from(topics);
+  const summary = topicsArray.length > 0
+    ? `The patient has already discussed: ${topicsArray.join(', ')}.`
+    : 'No topics have been discussed yet.';
+
+  return { topics, summary };
+}
+
+/**
+ * Build a comprehensive memory summary combining conversation history analysis and structured data
  * This helps the agent know what's already been covered
  */
-function buildFactMemory(currentData: Partial<IntakeData>): string[] {
+function buildFactMemory(
+  currentData: Partial<IntakeData>,
+  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
+): string[] {
   const facts: string[] = [];
   
+  // Analyze conversation history for covered topics
+  let coveredTopicsSummary = '';
+  if (conversationHistory && conversationHistory.length > 0) {
+    const { summary } = identifyCoveredTopics(conversationHistory);
+    coveredTopicsSummary = summary;
+    if (summary !== 'No topics have been discussed yet.') {
+      facts.push(`Covered topics: ${summary}`);
+    }
+  }
+  
+  // Add structured data facts
   if (currentData.chiefComplaint) {
     facts.push(`- Chief complaint: ${currentData.chiefComplaint}`);
   }
@@ -396,8 +477,8 @@ async function extractIntakeData(
     return {};
   }
 
-  // Build current knowledge context
-  const currentKnowledge = buildFactMemory(currentData);
+  // Build current knowledge context (for extraction, not for display in prompt)
+  const currentKnowledge = buildFactMemory(currentData, history);
   const knowledgeContext = currentKnowledge.length > 0 
     ? `Current knowledge: ${currentKnowledge.join('; ')}` 
     : 'No prior information collected yet.';
