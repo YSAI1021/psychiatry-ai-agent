@@ -84,12 +84,17 @@ async function extractPreferences(
   }
 
   const extractionPrompt = `Based on the conversation, extract patient preferences for finding a psychiatrist. Look for:
-- preferredLocation: city, state, or region
-- insuranceCarrier: insurance company name
+- preferredLocation: city, state, or region (extract any location mentioned)
+- insuranceCarrier: insurance company name (e.g., Aetna, Blue Cross, Cigna, UnitedHealthcare, Medicaid, Medicare)
 - insurancePlan: specific plan name if mentioned
-- inNetworkOnly: true if they want in-network only
-- acceptsNewPatientsOnly: true if they only want doctors accepting new patients
-- acceptsCashPay: true if they're open to cash payment
+- inNetworkOnly: true if they say "in-network only" or "in-network", false if they prefer cash pay
+- acceptsCashPay: true if they say "cash pay", "self-pay", "cash", or are open to paying out of pocket
+- acceptsNewPatientsOnly: true if they want only doctors "accepting new patients", false otherwise
+
+IMPORTANT: 
+- If they say "in-network only", set inNetworkOnly=true and acceptsCashPay=false
+- If they say "cash pay" or "self-pay", set acceptsCashPay=true and inNetworkOnly=false
+- If they're open to either, set both appropriately based on context
 
 Return only JSON with fields found. Use boolean true/false, not strings.
 
@@ -136,14 +141,44 @@ export async function generateRecommendationResponse(
   // Extract preferences from conversation
   const extractedPrefs = await extractPreferences(conversationHistory);
   const mergedPreferences = { ...currentPreferences, ...extractedPrefs };
+  
+  // Determine which question to ask next (sequential approach)
+  const questionIndex = mergedPreferences.currentQuestionIndex ?? 0;
+  const questions = [
+    { 
+      key: 'preferredLocation', 
+      question: 'What is your preferred location? (Please provide city, state, or region)' 
+    },
+    { 
+      key: 'insuranceCarrier', 
+      question: 'What is your insurance carrier? (e.g., Aetna, Blue Cross Blue Shield, Cigna, UnitedHealthcare)' 
+    },
+    { 
+      key: 'insurancePlan', 
+      question: 'What is your insurance plan name? (If you\'re not sure, you can skip this)' 
+    },
+    { 
+      key: 'paymentPreference', 
+      question: 'Do you prefer in-network providers only, or are you open to cash pay?' 
+    },
+    { 
+      key: 'acceptsNewPatientsOnly', 
+      question: 'Do you want to see only psychiatrists who are currently accepting new patients?' 
+    },
+  ];
 
-  // Check if we have enough preferences to filter
-  const hasEnoughInfo = 
-    (mergedPreferences.preferredLocation || mergedPreferences.acceptsCashPay !== undefined) &&
-    (mergedPreferences.insuranceCarrier || mergedPreferences.acceptsCashPay === true);
+  // Check which questions have been answered
+  const hasLocation = !!mergedPreferences.preferredLocation;
+  const hasInsurance = !!mergedPreferences.insuranceCarrier;
+  const hasPaymentPreference = mergedPreferences.acceptsCashPay !== undefined || mergedPreferences.inNetworkOnly !== undefined;
+  const hasNewPatientsPreference = mergedPreferences.acceptsNewPatientsOnly !== undefined;
+
+  // Determine if we have enough info to filter
+  // Minimum: location OR (insurance + payment preference)
+  const hasEnoughInfo = (hasLocation || (hasInsurance && hasPaymentPreference)) && hasNewPatientsPreference;
 
   if (hasEnoughInfo) {
-    // Filter psychiatrists
+    // All preferences collected - filter psychiatrists
     const psychiatrists = await filterPsychiatrists(mergedPreferences as RecommendationPreferences);
     
     return {
@@ -151,20 +186,40 @@ export async function generateRecommendationResponse(
         ? `I found ${psychiatrists.length} psychiatrist(s) matching your preferences. Please review them below.`
         : `I couldn't find any psychiatrists matching your exact preferences. Would you like to adjust your criteria?`,
       psychiatrists,
-      preferences: mergedPreferences as RecommendationPreferences,
+      preferences: { ...mergedPreferences, currentQuestionIndex: questions.length } as RecommendationPreferences,
     };
   }
 
-  // Ask for more information
+  // Determine next question to ask based on what's missing
+  let nextQuestionIndex = questionIndex;
+  let nextQuestion = questions[questionIndex].question;
+
+  if (questionIndex === 0 && !hasLocation) {
+    nextQuestionIndex = 0;
+    nextQuestion = questions[0].question;
+  } else if (questionIndex <= 1 && !hasInsurance) {
+    nextQuestionIndex = 1;
+    nextQuestion = questions[1].question;
+  } else if (questionIndex <= 2 && hasInsurance && !mergedPreferences.insurancePlan) {
+    // Insurance plan is optional, ask but allow skip
+    nextQuestionIndex = 2;
+    nextQuestion = questions[2].question;
+  } else if (questionIndex <= 3 && !hasPaymentPreference) {
+    nextQuestionIndex = 3;
+    nextQuestion = questions[3].question;
+  } else if (questionIndex <= 4 && !hasNewPatientsPreference) {
+    nextQuestionIndex = 4;
+    nextQuestion = questions[4].question;
+  }
+
+  // Ask ONE question at a time (sequential approach)
   const systemPrompt = `You are a psychiatric referral agent. Your role is to collect patient preferences for finding a psychiatrist.
 
-Ask about:
-1. Preferred location (city, state, or region)
-2. Insurance carrier and plan name
-3. Whether they require in-network only or if they can pay cash
-4. Whether they only want psychiatrists accepting new patients
+IMPORTANT: Ask ONLY ONE question at a time. Be friendly and concise.
 
-Keep questions concise and friendly. Once you have enough information, I'll provide filtered results.`;
+Current question to ask: "${nextQuestion}"
+
+Wait for the patient's response before asking the next question.`;
 
   const messages = [
     { role: 'system' as const, content: systemPrompt },
@@ -179,10 +234,15 @@ Keep questions concise and friendly. Once you have enough information, I'll prov
       max_tokens: 200,
     });
 
+    const assistantMessage = response.choices[0]?.message?.content || nextQuestion;
+    
     return {
-      message: response.choices[0]?.message?.content || 'Please provide your preferences for finding a psychiatrist.',
+      message: assistantMessage,
       psychiatrists: [],
-      preferences: mergedPreferences as RecommendationPreferences,
+      preferences: { 
+        ...mergedPreferences, 
+        currentQuestionIndex: nextQuestionIndex 
+      } as RecommendationPreferences,
     };
   } catch (error) {
     console.error('Error generating recommendation response:', error);

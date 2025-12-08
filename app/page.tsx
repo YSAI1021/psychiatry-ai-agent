@@ -83,9 +83,10 @@ export default function Home() {
       // Transition to recommendation agent
       setCurrentAgent(AgentType.RECOMMENDATION);
       
+      // Start recommendation agent - it will ask questions sequentially
       addMessage({
         role: 'assistant',
-        content: "Great! Now let's find you a psychiatrist. To help me make the best recommendation, I'll need to know a few things:\n\n1. What's your preferred location (city, state, or region)?\n2. Do you have insurance? If so, which carrier and plan?\n3. Do you prefer in-network providers, or are you open to cash pay?\n4. Do you want to see only psychiatrists who are accepting new patients?",
+        content: "Great! Now let's find you a psychiatrist. I'll ask you a few questions about your preferences.",
         agent: AgentType.RECOMMENDATION,
       });
     }
@@ -218,7 +219,8 @@ export default function Home() {
     });
 
     // Check if ready to proceed to summary
-    if (response.shouldContinue && response.completionPercentage >= 75) {
+    // Must have: all PHQ-9 items, patient confirmed readiness, and 75%+ completion
+    if (response.shouldContinue) {
       // Transition to summary agent
       setTimeout(async () => {
         await transitionToSummary();
@@ -272,9 +274,10 @@ export default function Home() {
         // Transition to recommendation agent
         setCurrentAgent(AgentType.RECOMMENDATION);
         
+        // Start recommendation agent - it will ask questions sequentially
         addMessage({
           role: 'assistant',
-          content: "Great! Now let's find you a psychiatrist. To help me make the best recommendation, I'll need to know a few things:\n\n1. What's your preferred location (city, state, or region)?\n2. Do you have insurance? If so, which carrier and plan?\n3. Do you prefer in-network providers, or are you open to cash pay?\n4. Do you want to see only psychiatrists who are accepting new patients?",
+          content: "Great! Now let's find you a psychiatrist. I'll ask you a few questions about your preferences.",
           agent: AgentType.RECOMMENDATION,
         });
       }
@@ -433,7 +436,7 @@ export default function Home() {
     <div className="flex h-screen flex-col bg-background">
       {/* Header */}
       <header className="flex items-center justify-between border-b border-border px-4 py-3">
-        <h1 className="text-lg font-semibold">Psychiatry Intake Assistant</h1>
+        <h1 className="text-lg font-semibold">PsyConnect Agents</h1>
         <Button
           variant="ghost"
           size="icon"
@@ -462,7 +465,7 @@ export default function Home() {
               <div className="flex h-full items-center justify-center">
                 <div className="max-w-2xl text-center">
                   <h2 className="mb-4 text-2xl font-semibold">
-                    Psychiatry Intake Assistant
+                    PsyConnect Agents
                   </h2>
                   <p className="text-muted-foreground">
                     I'm here to help with your psychiatric intake. Let's start by

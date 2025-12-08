@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Psychiatry AI Intake Assistant",
+  title: "PsyConnect Agents",
   description: "Multi-agent AI psychiatry intake assistant for clinical-grade patient pre-assessments",
 };
 

@@ -43,28 +43,28 @@ export async function generateClinicalSummary(
     throw new Error('OpenAI client not configured');
   }
 
-  const systemPrompt = `You are a professional psychiatric summary agent. Your task is to generate a comprehensive clinical summary using the standard psychiatric interview format.
+  const systemPrompt = `You are a professional psychiatric summary agent. Generate a concise but complete clinical summary in natural sentence format.
 
-Generate a natural-language clinical summary that follows this structure:
+REQUIRED STRUCTURE (based on standard psychiatric interview format):
+1. Identifying information: "A [age]-year-old [gender] presenting with [chief complaint]..."
+2. History of present illness: Current symptoms, severity, duration (1-2 sentences)
+3. Past psychiatric history: Prior diagnoses, treatments, medications (1 sentence if applicable)
+4. Personal history: Brief relevant background (if available)
+5. Family history: Psychiatric/medical family history (if mentioned)
+6. Medical history: Relevant medical conditions (if mentioned)
+7. Substance use history: Alcohol, drugs, tobacco (if mentioned)
+8. Mental status: Observable or inferred mental status (brief, professional)
+9. PHQ-9 score: ${intakeData.phq9Score || 'Not completed'} / 27 (include severity interpretation)
+10. Safety concerns: Suicidal ideation, self-harm, harm to others (if any)
+11. Functional impact: How symptoms affect daily life (1 sentence)
 
-1. Start with: "A [age]-year-old [gender] presenting with [chief complaint]..."
-
-2. Include:
-   - Chief complaint
-   - History of present illness (symptoms with severity and duration)
-   - Past psychiatric history (prior diagnoses, treatments, medications)
-   - Current medications and duration of use
-   - Substance use history
-   - Safety concerns (suicidal ideation, self-harm, etc.)
-   - Functional impact on daily life
-   - PHQ-9 score: ${intakeData.phq9Score || 'Not completed'}
-
-3. Use professional clinical language
-4. Be concise but comprehensive
-5. NO JSON formatting - plain text only
-6. Write in third person
-
-The summary should be suitable for a psychiatrist's clinical review.`;
+WRITING REQUIREMENTS:
+- Write in natural, flowing sentences (not bullet points)
+- Be concise: Aim for 8-12 sentences total
+- Use professional clinical language appropriate for psychiatrist review
+- NO JSON formatting - plain text only
+- Third person narrative style
+- If information is not available, omit that section (don't say "not provided")`;
 
   const dataContext = `
 Intake Data:
@@ -88,7 +88,7 @@ Intake Data:
         { role: 'user', content: dataContext + '\n\nPlease generate the clinical summary.' },
       ],
       temperature: 0.5, // Lower temperature for more consistent, clinical output
-      max_tokens: 800,
+      max_tokens: 600, // Reduced for more concise summaries
     });
 
     const summaryText = response.choices[0]?.message?.content || 'Unable to generate summary.';

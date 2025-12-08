@@ -28,6 +28,7 @@ export interface IntakeData {
   patientAge?: number;
   patientGender?: string;
   completionPercentage: number;
+  patientReadyForSummary?: boolean; // Patient has confirmed they're done sharing
 }
 
 export interface RecommendationPreferences {
@@ -37,6 +38,8 @@ export interface RecommendationPreferences {
   inNetworkOnly?: boolean;
   acceptsNewPatientsOnly?: boolean;
   acceptsCashPay?: boolean;
+  // Track which preference questions have been asked
+  currentQuestionIndex?: number; // 0=location, 1=insurance, 2=plan, 3=payment, 4=new patients
 }
 
 export interface ClinicalSummary {

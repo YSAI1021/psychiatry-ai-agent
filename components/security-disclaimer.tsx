@@ -1,14 +1,13 @@
 'use client';
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Info } from 'lucide-react';
 
 export function SecurityDisclaimer() {
   return (
-    <Alert className="mb-3 border-border/50 bg-muted/30 py-2">
-      <Info className="h-3 w-3 text-muted-foreground" />
-      <AlertTitle className="text-xs font-medium text-muted-foreground">Important Notice</AlertTitle>
-      <AlertDescription className="text-xs text-muted-foreground/80 leading-relaxed">
+    <Alert className="mb-2 border-border/50 bg-muted/30 py-1.5">
+      <Info className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
+      <AlertDescription className="text-xs text-muted-foreground/80 leading-tight">
         This is not a diagnostic or emergency service. If you are in crisis, please contact{' '}
         <a
           href="tel:988"
@@ -16,7 +15,7 @@ export function SecurityDisclaimer() {
         >
           988
         </a>{' '}
-        (Suicide & Crisis Lifeline) or go to your nearest emergency room immediately.
+        (Suicide & Crisis Lifeline).
       </AlertDescription>
     </Alert>
   );
