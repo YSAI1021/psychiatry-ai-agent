@@ -105,19 +105,66 @@ Please provide your responses as a comma-separated list (e.g., "0,1,2,0,1,1,0,0,
 }
 
 /**
- * Parse PHQ-9 responses from user input
+ * Parse a single PHQ-9 response from natural language input
+ * Handles flexible input like "I'd say 2", "more than half the days", "probably a 2", etc.
+ * Returns 0-3 if valid, null if unsure
  */
-export function parsePHQ9Responses(input: string): number[] | null {
-  // Try to extract numbers from the input
-  const numbers = input.match(/\d/g);
-  if (numbers && numbers.length === 9) {
-    return numbers.map(n => parseInt(n)).filter(n => n >= 0 && n <= 3);
+export function parsePHQ9Response(input: string): number | null {
+  if (!input || typeof input !== 'string') return null;
+  
+  const lowerInput = input.toLowerCase().trim();
+  
+  // Direct number matches (0-3)
+  const numberMatch = lowerInput.match(/\b([0-3])\b/);
+  if (numberMatch) {
+    const num = parseInt(numberMatch[1]);
+    if (num >= 0 && num <= 3) return num;
   }
   
-  // Try comma-separated format
-  const commaSeparated = input.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 0 && n <= 3);
+  // Score 0 patterns: "not at all", "never", "none", "0"
+  if (lowerInput.match(/\b(not at all|never|none|no|zero|0)\b/)) {
+    return 0;
+  }
+  
+  // Score 1 patterns: "several days", "some days", "a few", "1"
+  if (lowerInput.match(/\b(several days|some days|a few|occasionally|sometimes|once or twice|1)\b/)) {
+    return 1;
+  }
+  
+  // Score 2 patterns: "more than half", "more than half the days", "often", "most days", "2"
+  if (lowerInput.match(/\b(more than half|more than half the days|often|most days|frequently|regularly|2|probably a 2|i'd say 2|probably 2)\b/)) {
+    return 2;
+  }
+  
+  // Score 3 patterns: "nearly every day", "every day", "almost always", "all the time", "3"
+  if (lowerInput.match(/\b(nearly every day|every day|almost every day|almost always|all the time|always|constantly|3|probably a 3|i'd say 3|probably 3)\b/)) {
+    return 3;
+  }
+  
+  // If we can't parse it, return null (unclear)
+  return null;
+}
+
+/**
+ * Parse multiple PHQ-9 responses from user input (for batch responses)
+ * Supports comma-separated lists or extracting 9 numbers
+ */
+export function parsePHQ9Responses(input: string): number[] | null {
+  if (!input) return null;
+  
+  // Try comma-separated format first
+  const commaSeparated = input.split(',').map(s => parsePHQ9Response(s.trim())).filter(n => n !== null) as number[];
   if (commaSeparated.length === 9) {
     return commaSeparated;
+  }
+  
+  // Try extracting 9 consecutive digits
+  const numbers = input.match(/\d/g);
+  if (numbers && numbers.length === 9) {
+    const parsed = numbers.map(n => parseInt(n)).filter(n => n >= 0 && n <= 3);
+    if (parsed.length === 9) {
+      return parsed;
+    }
   }
   
   return null;
@@ -139,32 +186,49 @@ export async function generateIntakeResponse(
   const patientReady = currentData.patientReadyForSummary === true;
   const allFieldsComplete = completion >= 75 && !needsPHQ9;
 
+  // Determine which depression symptom question to ask (if needed)
+  const currentResponses = currentData.phq9Responses || [];
+  const questionsToAsk = [
+    "Over the last two weeks, how often have you had little interest or pleasure in doing things?",
+    "Over the last two weeks, how often have you felt down, depressed, or hopeless?",
+    "Over the last two weeks, how often have you had trouble falling asleep or staying asleep, or sleeping too much?",
+    "Over the last two weeks, how often have you felt tired or had little energy?",
+    "Over the last two weeks, how often have you had poor appetite or overeating?",
+    "Over the last two weeks, how often have you felt bad about yourself - or that you are a failure or have let yourself or your family down?",
+    "Over the last two weeks, how often have you had trouble concentrating on things, such as reading the newspaper or watching television?",
+    "Over the last two weeks, how often have you been moving or speaking so slowly that other people could have noticed? Or the opposite - being so fidgety or restless that you have been moving around a lot more than usual?",
+    "Over the last two weeks, how often have you had thoughts that you would be better off dead, or of hurting yourself?",
+  ];
+  const nextQuestionIndex = currentResponses.length;
+  const hasAllQuestions = nextQuestionIndex >= 9;
+
   // Build system prompt with improved instructions
   let systemPrompt = `You are a professional psychiatric intake agent. Your role is to:
-- Ask concise, focused clinical questions
-- Collect structured information about the patient's mental health history
-- Keep responses brief and professional (2-3 sentences max)
+- Ask natural, conversational questions about the patient's mental health
+- Keep responses brief (2-3 sentences max)
 - Guide the conversation to gather: chief complaint, history of present illness, past psychiatric history, medications, safety concerns, substance use, and functional impact
 
-CRITICAL REQUIREMENTS:
-1. PHQ-9 SCREENING: You MUST collect all 9 PHQ-9 items before proceeding. ${needsPHQ9 ? 'PHQ-9 is NOT yet complete - prioritize this.' : 'PHQ-9 is complete.'}
-2. If patient gives unclear answers or says "I don't know" or "not sure", DO NOT repeat the same question.
+CRITICAL REQUIREMENTS FOR DEPRESSION SYMPTOMS:
+${needsPHQ9 ? `
+1. DEPRESSION SYMPTOMS: You MUST ask about all 9 depression symptom questions before proceeding. You have collected ${currentResponses.length} of 9 so far.
+   - NEVER mention "PHQ-9", "screening", "questionnaire", or any technical terms to the patient
+   - Ask ONE question at a time in a natural, conversational way
+   - Accept natural language answers (e.g., "I'd say 2", "more than half the days", "probably a 2", "nearly every day")
+   - After getting a valid answer, IMMEDIATELY move to the next question - do NOT repeat or confirm
+   - If the answer is unclear or vague, ask for clarification ONCE: "Would you say: not at all (0), several days (1), more than half the days (2), or nearly every day (3)?"
+   - DO NOT repeat the same question more than once unless the user explicitly asks you to
+   - Once you get an answer, acknowledge briefly and move on (e.g., "Thank you. Next...")
+
+   ${nextQuestionIndex < 9 ? `NEXT QUESTION TO ASK: "${questionsToAsk[nextQuestionIndex]}"` : 'All 9 questions have been asked.'}
+` : 'All depression symptom questions have been completed.'}
+
+2. GENERAL CLARIFICATION: If patient gives unclear answers or says "I don't know" or "not sure", DO NOT repeat the same question.
    Instead, clarify or rephrase to help them understand.
    Example: "When I ask about 'feeling tired,' I mean physical or mental fatigue. Could you describe what you've experienced?"
+
 3. Current completion: ${completion}% - you need at least 75% to be ready for summary
 ${allFieldsComplete && !patientReady ? '4. PATIENT READINESS: All required information is collected. Now ask: "Is there anything else you\'d like to share before I summarize what you\'ve told me?" Only proceed after patient confirms they are done.' : ''}
-${allFieldsComplete && patientReady ? '5. READY: Patient has confirmed readiness. You may now indicate readiness to proceed to clinical summary.' : ''}
-
-PHQ-9 Questions (collect all 9, 0-3 scale each):
-1. Little interest or pleasure in doing things
-2. Feeling down, depressed, or hopeless
-3. Trouble falling asleep or sleeping too much
-4. Feeling tired or having little energy
-5. Poor appetite or overeating
-6. Feeling bad about yourself - or that you are a failure or have let yourself or family down
-7. Trouble concentrating on things, such as reading the newspaper or watching television
-8. Moving or speaking so slowly that other people could have noticed. Or the opposite - being so fidgety or restless that you have been moving around a lot more than usual
-9. Thoughts that you would be better off dead, or of hurting yourself in some way`;
+${allFieldsComplete && patientReady ? '5. READY: Patient has confirmed readiness. You may now indicate readiness to proceed to clinical summary.' : ''}`;
 
   const messages = [
     { role: 'system' as const, content: systemPrompt },
@@ -182,20 +246,49 @@ PHQ-9 Questions (collect all 9, 0-3 scale each):
     const assistantMessage = response.choices[0]?.message?.content || 'I apologize, I encountered an error. Please try again.';
 
     // Try to extract structured data from the conversation using LLM
-    const extractedData = await extractIntakeData(conversationHistory, assistantMessage);
+    const extractedData = await extractIntakeData(conversationHistory, assistantMessage, currentData);
+
+    // Also try to parse PHQ-9 response from the user's last message (individual response parsing)
+    const lastUserMessage = conversationHistory.filter(m => m.role === 'user').pop()?.content || '';
+    const singlePHQ9Response = parsePHQ9Response(lastUserMessage);
+    
+    // Merge PHQ-9 responses: use extracted data if available, otherwise try to append single response
+    let mergedPHQ9Responses = currentData.phq9Responses || [];
+    if (extractedData.phq9Responses && Array.isArray(extractedData.phq9Responses)) {
+      // Use extracted responses if available (handles batch or complete arrays)
+      mergedPHQ9Responses = extractedData.phq9Responses;
+    } else if (singlePHQ9Response !== null) {
+      // Append single response if it's new (not already in array)
+      if (!mergedPHQ9Responses.includes(singlePHQ9Response) || mergedPHQ9Responses.length < 9) {
+        // Add to array, but don't exceed 9
+        if (mergedPHQ9Responses.length < 9) {
+          mergedPHQ9Responses = [...mergedPHQ9Responses, singlePHQ9Response];
+        }
+      }
+    }
+    
+    // Ensure we don't exceed 9 responses
+    if (mergedPHQ9Responses.length > 9) {
+      mergedPHQ9Responses = mergedPHQ9Responses.slice(0, 9);
+    }
+    
+    // Calculate PHQ-9 score if we have responses
+    const phq9Score = mergedPHQ9Responses.length > 0 ? calculatePHQ9Score(mergedPHQ9Responses) : (currentData.phq9Score || 0);
 
     // Check if patient confirmed readiness (look for confirmation in user's last message or assistant's response)
-    const lastUserMessage = conversationHistory.filter(m => m.role === 'user').pop()?.content.toLowerCase() || '';
-    const confirmedReady = lastUserMessage.includes('yes') || 
-                          lastUserMessage.includes('nothing else') || 
-                          lastUserMessage.includes('done') ||
-                          lastUserMessage.includes('ready') ||
-                          lastUserMessage.includes('proceed') ||
+    const lastUserMessageLower = lastUserMessage.toLowerCase();
+    const confirmedReady = lastUserMessageLower.includes('yes') || 
+                          lastUserMessageLower.includes('nothing else') || 
+                          lastUserMessageLower.includes('done') ||
+                          lastUserMessageLower.includes('ready') ||
+                          lastUserMessageLower.includes('proceed') ||
                           assistantMessage.toLowerCase().includes('summarize what you\'ve told me');
 
     const updatedData = { 
       ...currentData, 
       ...extractedData,
+      phq9Responses: mergedPHQ9Responses.length > 0 ? mergedPHQ9Responses : currentData.phq9Responses,
+      phq9Score: phq9Score,
       patientReadyForSummary: confirmedReady || currentData.patientReadyForSummary,
     };
     const newCompletion = calculateCompletion(updatedData);
@@ -225,7 +318,8 @@ PHQ-9 Questions (collect all 9, 0-3 scale each):
  */
 async function extractIntakeData(
   history: Array<{ role: 'user' | 'assistant'; content: string }>,
-  lastAssistantMessage: string
+  lastAssistantMessage: string,
+  currentData: Partial<IntakeData>
 ): Promise<Partial<IntakeData>> {
   if (!openai) {
     return {};
@@ -242,7 +336,17 @@ async function extractIntakeData(
 - functionalImpact: how symptoms affect daily life
 - patientAge: age if mentioned (number only)
 - patientGender: gender if mentioned (male/female/non-binary/prefer-not-to-say)
-- phq9Responses: array of 9 numbers (0-3 each) if PHQ-9 responses are provided in the conversation
+- phq9Responses: array of numbers (0-3 each) representing answers to depression symptom questions
+  IMPORTANT: Parse natural language answers into scores:
+    - "not at all", "never", "none", "no" → 0
+    - "several days", "some days", "a few", "occasionally" → 1
+    - "more than half the days", "more than half", "often", "most days", "I'd say 2", "probably a 2", "probably 2" → 2
+    - "nearly every day", "every day", "always", "all the time" → 3
+  Current known responses: ${JSON.stringify(currentData.phq9Responses || [])}
+  Look for NEW answers in the most recent user messages. If you find a new answer to a depression symptom question:
+    - Append it to the existing array (maintain order, don't duplicate)
+    - Ensure array length does not exceed 9
+    - If array becomes exactly 9, all questions are answered
 
 Return only a JSON object with the fields found, no other text. If a field wasn't mentioned, omit it.
 

@@ -12,7 +12,7 @@ import { EmailPreview } from '@/components/email-preview';
 import { Button } from '@/components/ui/button';
 import { Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
-import { parsePHQ9Responses, calculatePHQ9Score } from '@/lib/agents/intake-agent';
+import { parsePHQ9Responses, parsePHQ9Response, calculatePHQ9Score } from '@/lib/agents/intake-agent';
 import { filterPsychiatrists } from '@/lib/agents/recommendation-agent';
 import { saveBooking, updateBookingStatus, sendEmail } from '@/lib/agents/booking-agent';
 import { supabase } from '@/lib/supabase';
