@@ -178,6 +178,54 @@ export function parsePHQ9Responses(input: string): number[] | null {
 }
 
 /**
+ * Filter out repetitive content that echoes the user's message
+ * This prevents the agent from parroting back what the patient just said
+ */
+function filterRepetitiveContent(
+  assistantMessage: string,
+  lastUserMessage: string
+): string {
+  if (!lastUserMessage || lastUserMessage.length < 10) {
+    return assistantMessage;
+  }
+
+  // Extract meaningful words (>3 chars) from user message
+  const userWords = new Set(
+    lastUserMessage
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .split(/\s+/)
+      .filter(w => w.length > 3)
+  );
+  
+  // Check assistant message for overlap
+  const assistantWords = assistantMessage
+    .toLowerCase()
+    .replace(/[^\w\s]/g, '')
+    .split(/\s+/)
+    .filter(w => w.length > 3);
+  
+  const overlapCount = assistantWords.filter(w => userWords.has(w)).length;
+  
+  // If more than 40% overlap, this is likely repetitive
+  if (assistantWords.length > 0 && overlapCount / assistantWords.length > 0.4) {
+    console.warn('[Intake Agent] Detected repetitive response (overlap: ' + 
+      Math.round(overlapCount / assistantWords.length * 100) + '%)');
+    
+    // Return a generic transition instead
+    const transitions = [
+      "Thanks. Let me ask about something else.",
+      "Got it. Moving on —",
+      "Understood. Next question:",
+      "Thanks for sharing that.",
+    ];
+    return transitions[Math.floor(Math.random() * transitions.length)];
+  }
+  
+  return assistantMessage;
+}
+
+/**
  * Generate intake agent response using LLM
  */
 export async function generateIntakeResponse(
@@ -193,71 +241,85 @@ export async function generateIntakeResponse(
   const patientReady = currentData.patientReadyForSummary === true;
   const allFieldsComplete = completion >= 75;
 
-  // Analyze conversation history for covered topics
-  const { topics: coveredTopics, summary: coveredTopicsSummary } = identifyCoveredTopics(conversationHistory);
-  
-  // Build context of what we already know (fact memory)
-  const factMemory = buildFactMemory(currentData, conversationHistory);
-
   // Build system prompt with improved instructions
-  let systemPrompt = `You are a psychiatric intake assistant conducting a conversational interview.
+  let systemPrompt = `You are a friendly, conversational psychiatric intake agent. Your role is to:
+- Ask natural, human questions about the patient's mental health
+- Keep responses EXTREMELY brief (1 sentence max, often just 3-5 words)
+- Guide the conversation to gather: chief complaint, history of present illness, past psychiatric history, medications, safety concerns, substance use, and functional impact
+- Ask about symptoms naturally: sleep, appetite, energy, concentration, mood, and any thoughts of self-harm
+- Use everyday language, not medical terms
 
-Your goal is to help a psychiatrist by collecting key clinical details from the patient through a friendly and empathetic dialogue. Focus on these psychiatric intake categories:
+AGENT LANGUAGE STYLE - CRITICAL RULES:
+- Use a simple, human, conversational tone - NOT clinical or overly formal
+- NEVER repeat, summarize, or paraphrase what the patient just said
+- NEVER use phrases like: "It started...", "You mentioned...", "So you're saying...", "I understand that...", "I hear that..."
+- After receiving an answer, use ONLY these brief acknowledgments:
+  * "Thanks."
+  * "Got it."
+  * "Understood."
+  * "OK."
+  Then IMMEDIATELY move to the next question on the same line
+- Only ask clarifying questions if something is genuinely unclear (e.g., "Just to confirm — 2 or 3?")
+- Avoid:
+  * Echoing ANY phrases from patient responses
+  * Over-apologizing
+  * Explaining medical tools or technical terms
+  * Long technical explanations
+  * Validating or summarizing what was just said
+- Focus on efficient, smooth transitions between topics
 
-1. Chief complaint - Primary reason for seeking care
-2. History of present illness - Current symptoms, when they started, how long they've lasted
-3. Past psychiatric history - Prior diagnoses, treatments, medications, hospitalizations
-4. Personal and family history - Background information, family mental health history
-5. Medical and substance use history - Medical conditions, alcohol, drugs, tobacco
-6. Mental status - Observable signs (inferred from conversation)
-7. Functional impairment - Impact on work, sleep, relationships, daily activities
-8. Recent life changes or stressors - Major events, losses, transitions
+EXAMPLES OF CORRECT STYLE:
+✅ Patient: "I've been feeling down for 3 months"
+✅ Agent: "Thanks. How's your sleep?"
 
-CRITICAL CONVERSATIONAL RULES - YOU MUST FOLLOW THESE:
-1. DO NOT repeat or summarize what the patient has said
-   - Never say "You mentioned earlier..." or "It sounds like you're feeling..."
-   - Never mirror or rephrase the patient's message
-   - Do not reflect back what they just told you
-   - Simply acknowledge briefly and move forward
+✅ Patient: "My energy is really low"
+✅ Agent: "Got it. Any appetite changes?"
 
-2. DO NOT ask about topics already discussed
-   - If a topic has already been addressed by the patient, skip it entirely
-   - Examples: If they already talked about sleep, don't ask about sleep again
-   - If they already gave symptom duration, don't ask "how long" again
+✅ Patient: "I can't concentrate at work"
+✅ Agent: "Understood. Any thoughts of self-harm?"
 
-3. Ask ONE question at a time
-   - Wait for the patient's answer before asking the next question
-   - Keep a calm, conversational tone
-   - Use natural language, not robotic or clinical
+EXAMPLES OF INCORRECT STYLE (NEVER DO THIS):
+❌ Patient: "I've been feeling down for 3 months"
+❌ Agent: "So you've been feeling down for about 3 months. How about your sleep?"
 
-4. If the answer is unclear, gently ask for clarification
-   - Do NOT re-ask the original question verbatim
-   - Rephrase or provide context to help them understand
-   - Example: "When I ask about sleep, I mean both quantity and quality - are you getting enough sleep, and is the sleep restful?"
+❌ Patient: "My energy is really low"
+❌ Agent: "I hear that your energy has been low. What about appetite?"
 
-5. Use brief acknowledgments only
-   - "Thanks for sharing that."
-   - "Got it."
-   - "I understand."
-   - Then immediately move to the next question
+❌ Patient: "I can't concentrate at work"
+❌ Agent: "It sounds like you're having trouble concentrating at work. How about thoughts of self-harm?"
 
-6. At the end, ask: "Is there anything else you'd like to share before I summarize everything?"
+1. DO NOT ask structured PHQ-9 questions or mention "PHQ-9", "screening", or "questionnaire" to the patient
+2. Ask about symptoms naturally in conversation:
+   - Sleep patterns (trouble sleeping, sleeping too much, duration)
+   - Appetite changes (eating more or less, duration)
+   - Energy levels (feeling tired, low energy, duration)
+   - Concentration (trouble focusing, making decisions, duration)
+   - Mood (feeling down, hopeless, anxious, duration)
+   - Interest in activities (loss of interest or pleasure, duration)
+   - Self-perception (feeling bad about yourself, duration)
+   - Physical symptoms (moving slowly or restlessness, duration)
+   - Safety (thoughts of self-harm or suicide)
+3. TIME FRAME AWARENESS: When learning about a symptom, ask how long it's been present.
+   - Ask: "How long have you been experiencing [symptom]?" or "When did [symptom] start?"
+   - BUT only if duration hasn't already been mentioned in the conversation
+4. If patient gives unclear answers or says "I don't know", DO NOT repeat the same question.
+   Instead, clarify or rephrase to help them understand.
+5. Current completion: ${completion}% - you need at least 75% to be ready for the screening form
 
-WHAT WE ALREADY KNOW (DO NOT ASK ABOUT THESE AGAIN):
-${coveredTopicsSummary}
-${factMemory.length > 0 ? factMemory.filter(f => !f.startsWith('Covered topics:')).join('\n') : ''}
+${allFieldsComplete && !patientReady ? '6. PATIENT READINESS CHECKPOINT: Once you have gathered adequate information, ask: "Is there anything else you\'d like to share before I summarize everything?" Then say: "Thanks for sharing all of that. Before we move on, I\'d like you to fill out a short 9-question form. This helps your provider understand your symptoms a bit better."' : ''}
+${allFieldsComplete && patientReady ? '7. READY: Patient has been informed about the screening form. They should proceed to fill out the form.' : ''}`;
 
-ADDITIONAL REQUIREMENTS:
-- DO NOT ask structured PHQ-9 questions or mention "PHQ-9", "screening", or "questionnaire" to the patient
-- Ask about symptoms naturally in conversation using everyday language
-- If patient gives unclear answers, DO NOT repeat the same question - instead clarify or rephrase
-- Current completion: ${completion}% - you need at least 75% to be ready for the screening form
-
-${allFieldsComplete && !patientReady ? 'PATIENT READINESS CHECKPOINT: Once you have gathered adequate information, ask: "Is there anything else you\'d like to share before I summarize everything?" Then say: "Thanks for sharing all of that. Before we move on, I\'d like you to fill out a short 9-question form. This helps your provider understand your symptoms a bit better."' : ''}
-${allFieldsComplete && patientReady ? 'READY: Patient has been informed about the screening form. They should proceed to fill out the form.' : ''}`;
-
+  // Add few-shot examples to reinforce the style
   const messages = [
     { role: 'system' as const, content: systemPrompt },
+    // Few-shot examples
+    { role: 'user' as const, content: "I've been feeling really anxious for the past month, especially at night." },
+    { role: 'assistant' as const, content: "Thanks. How's your sleep?" },
+    { role: 'user' as const, content: "My sleep is terrible. I wake up multiple times and can't fall back asleep." },
+    { role: 'assistant' as const, content: "Got it. What about your appetite?" },
+    { role: 'user' as const, content: "I've been eating less. Not really hungry." },
+    { role: 'assistant' as const, content: "Understood. Energy levels?" },
+    // Now add the actual conversation
     ...conversationHistory,
   ];
 
@@ -265,17 +327,21 @@ ${allFieldsComplete && patientReady ? 'READY: Patient has been informed about th
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages,
-      temperature: 0.7,
-      max_tokens: 300,
+      temperature: 0.4, // Lower temperature for more consistent, less creative responses
+      max_tokens: 150, // Shorter to encourage brevity
+      stop: ["\n\n", "Patient:", "User:"], // Stop at paragraph breaks
     });
 
-    const assistantMessage = response.choices[0]?.message?.content || 'I apologize, I encountered an error. Please try again.';
+    let assistantMessage = response.choices[0]?.message?.content || 'I apologize, I encountered an error. Please try again.';
+
+    // Filter out repetitive content
+    const lastUserMessage = conversationHistory.filter(m => m.role === 'user').pop()?.content || '';
+    assistantMessage = filterRepetitiveContent(assistantMessage, lastUserMessage);
 
     // Try to extract structured data from the conversation using LLM
     const extractedData = await extractIntakeData(conversationHistory, assistantMessage, currentData);
 
     // Also try to parse PHQ-9 response from the user's last message (individual response parsing)
-    const lastUserMessage = conversationHistory.filter(m => m.role === 'user').pop()?.content || '';
     const singlePHQ9Response = parsePHQ9Response(lastUserMessage);
     
     // Merge PHQ-9 responses: use extracted data if available, otherwise try to append single response
@@ -477,8 +543,8 @@ async function extractIntakeData(
     return {};
   }
 
-  // Build current knowledge context (for extraction, not for display in prompt)
-  const currentKnowledge = buildFactMemory(currentData, history);
+  // Build current knowledge context
+  const currentKnowledge = buildFactMemory(currentData);
   const knowledgeContext = currentKnowledge.length > 0 
     ? `Current knowledge: ${currentKnowledge.join('; ')}` 
     : 'No prior information collected yet.';
@@ -575,4 +641,3 @@ Assistant: ${lastAssistantMessage}`;
     return {};
   }
 }
-
