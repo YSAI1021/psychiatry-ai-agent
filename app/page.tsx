@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { useAppStore, IntakeData, ClinicalSummary } from '@/lib/store';
+import { useAppStore, IntakeData, ClinicalSummary, RecommendationPreferences } from '@/lib/store';
 import { AgentType } from '@/lib/openai';
 import { ChatContainer } from '@/components/chat/chat-container';
 import { ChatInput } from '@/components/chat/chat-input';
@@ -449,7 +449,7 @@ export default function Home() {
       </header>
 
       {/* Security Disclaimer */}
-      <div className="px-4 pt-4">
+      <div className="px-4 pt-2 pb-1">
         <SecurityDisclaimer />
       </div>
 

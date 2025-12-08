@@ -1,18 +1,18 @@
 'use client';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle } from 'lucide-react';
+import { Info } from 'lucide-react';
 
 export function SecurityDisclaimer() {
   return (
-    <Alert className="mb-4 border-destructive/50 bg-destructive/10">
-      <AlertTriangle className="h-4 w-4 text-destructive" />
-      <AlertTitle className="text-destructive">Important Notice</AlertTitle>
-      <AlertDescription className="text-destructive/90">
+    <Alert className="mb-3 border-border/50 bg-muted/30 py-2">
+      <Info className="h-3 w-3 text-muted-foreground" />
+      <AlertTitle className="text-xs font-medium text-muted-foreground">Important Notice</AlertTitle>
+      <AlertDescription className="text-xs text-muted-foreground/80 leading-relaxed">
         This is not a diagnostic or emergency service. If you are in crisis, please contact{' '}
         <a
           href="tel:988"
-          className="font-semibold underline hover:no-underline"
+          className="font-medium underline hover:no-underline text-foreground/90"
         >
           988
         </a>{' '}
