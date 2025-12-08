@@ -93,45 +93,80 @@ export default function Home() {
   }, [clinicalSummary?.confirmed, currentAgent]);
 
   /**
-   * Helper function to call the chat API route
+   * Helper function to call the chat API route with retry logic
    * This ensures OpenAI calls happen server-side where the API key is available
+   * Implements retry logic for network failures and API errors
    */
-  const callChatAPI = async (payload: {
-    agentType: AgentType;
-    userMessage: string;
-    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
-    intakeData?: Partial<IntakeData>;
-    clinicalSummary?: ClinicalSummary;
-    recommendationPreferences?: Partial<RecommendationPreferences>;
-    selectedPsychiatrist?: any;
-  }) => {
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        console.error('[Client] API error response:', {
-          status: response.status,
-          data,
+  const callChatAPI = async (
+    payload: {
+      agentType: AgentType;
+      userMessage: string;
+      conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
+      intakeData?: Partial<IntakeData>;
+      clinicalSummary?: ClinicalSummary;
+      recommendationPreferences?: Partial<RecommendationPreferences>;
+      selectedPsychiatrist?: any;
+    },
+    retries = 2
+  ) => {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
         });
-        throw new Error(data.error || 'API request failed');
-      }
 
-      return data.data;
-    } catch (error: any) {
-      console.error('[Client] Error calling chat API:', {
-        message: error.message,
-        stack: error.stack,
-      });
-      throw error;
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          // Don't retry on client errors (4xx), only on server errors (5xx)
+          if (response.status >= 400 && response.status < 500) {
+            console.error('[Client] Client error (no retry):', {
+              status: response.status,
+              data,
+            });
+            throw new Error(data.error || 'API request failed');
+          }
+
+          // Retry on server errors
+          if (attempt < retries) {
+            console.warn(`[Client] Server error, retrying (${attempt + 1}/${retries})...`, {
+              status: response.status,
+            });
+            await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1))); // Exponential backoff
+            continue;
+          }
+
+          console.error('[Client] API error after retries:', {
+            status: response.status,
+            data,
+          });
+          throw new Error(data.error || 'API request failed');
+        }
+
+        return data.data;
+      } catch (error: any) {
+        // Network errors - retry
+        if (attempt < retries && (error.name === 'TypeError' || error.message.includes('fetch'))) {
+          console.warn(`[Client] Network error, retrying (${attempt + 1}/${retries})...`, error.message);
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1))); // Exponential backoff
+          continue;
+        }
+
+        // Final attempt failed or non-retryable error
+        console.error('[Client] Error calling chat API:', {
+          message: error.message,
+          stack: error.stack,
+          attempt,
+        });
+        throw error;
+      }
     }
+    
+    throw new Error('Failed after all retry attempts');
   };
 
   const handleSend = async () => {
@@ -150,9 +185,18 @@ export default function Home() {
         message: error.message,
         stack: error.stack,
       });
+      
+      // User-friendly error messages
+      let errorMessage = 'I apologize, but I encountered an error. Please try again.';
+      if (error.message?.includes('network') || error.message?.includes('fetch')) {
+        errorMessage = 'Connection error. Please check your internet connection and try again.';
+      } else if (error.message?.includes('API key') || error.message?.includes('OpenAI')) {
+        errorMessage = 'Service temporarily unavailable. Please try again in a moment.';
+      }
+      
       addMessage({
         role: 'assistant',
-        content: error.message || 'I apologize, but I encountered an error. Please try again or refresh the page.',
+        content: errorMessage,
       });
     } finally {
       setLoading(false);
@@ -401,11 +445,13 @@ export default function Home() {
         emailToSend
       );
 
-      // Mock send email
+      // Send email with clinical summary attachment
       const emailSent = await sendEmail(
         selectedPsychiatrist.email || '',
         'New Patient Referral',
-        emailToSend
+        emailToSend,
+        clinicalSummary?.text, // Attach clinical summary as text file
+        `clinical-summary-${new Date().toISOString().split('T')[0]}.txt`
       );
 
       if (emailSent) {

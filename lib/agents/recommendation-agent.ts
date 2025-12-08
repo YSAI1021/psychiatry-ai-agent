@@ -84,19 +84,23 @@ async function extractPreferences(
   }
 
   const extractionPrompt = `Based on the conversation, extract patient preferences for finding a psychiatrist. Look for:
-- preferredLocation: city, state, or region (extract any location mentioned)
+- preferredLocation: city, state, zip code, or region (extract any location mentioned)
 - insuranceCarrier: insurance company name (e.g., Aetna, Blue Cross, Cigna, UnitedHealthcare, Medicaid, Medicare)
 - insurancePlan: specific plan name if mentioned
 - inNetworkOnly: true if they say "in-network only" or "in-network", false if they prefer cash pay
 - acceptsCashPay: true if they say "cash pay", "self-pay", "cash", or are open to paying out of pocket
 - acceptsNewPatientsOnly: true if they want only doctors "accepting new patients", false otherwise
+- preferredLanguage: language preference (e.g., "English", "Spanish", "no preference")
+- preferredGender: gender preference for psychiatrist (e.g., "male", "female", "no preference")
+- schedulingPreferences: scheduling preferences (e.g., "weekends only", "evening hours", "flexible")
 
 IMPORTANT: 
 - If they say "in-network only", set inNetworkOnly=true and acceptsCashPay=false
 - If they say "cash pay" or "self-pay", set acceptsCashPay=true and inNetworkOnly=false
 - If they're open to either, set both appropriately based on context
+- For language/gender, extract explicit preference or default to "no preference" if not specified
 
-Return only JSON with fields found. Use boolean true/false, not strings.
+Return only JSON with fields found. Use boolean true/false, not strings. Use strings for language, gender, and scheduling.
 
 Conversation:
 ${conversationHistory.map(m => `${m.role}: ${m.content}`).join('\n')}`;
@@ -147,7 +151,7 @@ export async function generateRecommendationResponse(
   const questions = [
     { 
       key: 'preferredLocation', 
-      question: 'What is your preferred location? (Please provide city, state, or region)' 
+      question: 'What is your preferred location? (Please provide city, state, or zip code)' 
     },
     { 
       key: 'insuranceCarrier', 
@@ -165,6 +169,18 @@ export async function generateRecommendationResponse(
       key: 'acceptsNewPatientsOnly', 
       question: 'Do you want to see only psychiatrists who are currently accepting new patients?' 
     },
+    { 
+      key: 'preferredLanguage', 
+      question: 'Do you have any language preferences? (e.g., English, Spanish, or no preference)' 
+    },
+    { 
+      key: 'preferredGender', 
+      question: 'Do you have a gender preference for your psychiatrist? (male, female, or no preference)' 
+    },
+    { 
+      key: 'schedulingPreferences', 
+      question: 'Do you have any scheduling preferences? (e.g., weekends only, evening hours, or flexible)' 
+    },
   ];
 
   // Check which questions have been answered
@@ -172,10 +188,14 @@ export async function generateRecommendationResponse(
   const hasInsurance = !!mergedPreferences.insuranceCarrier;
   const hasPaymentPreference = mergedPreferences.acceptsCashPay !== undefined || mergedPreferences.inNetworkOnly !== undefined;
   const hasNewPatientsPreference = mergedPreferences.acceptsNewPatientsOnly !== undefined;
+  const hasLanguage = !!mergedPreferences.preferredLanguage;
+  const hasGender = !!mergedPreferences.preferredGender;
+  const hasScheduling = !!mergedPreferences.schedulingPreferences;
 
   // Determine if we have enough info to filter
-  // Minimum: location OR (insurance + payment preference)
-  const hasEnoughInfo = (hasLocation || (hasInsurance && hasPaymentPreference)) && hasNewPatientsPreference;
+  // Minimum required: location OR (insurance + payment preference), plus new patients preference
+  // Optional but collected: language, gender, scheduling
+  const hasEnoughInfo = (hasLocation || (hasInsurance && hasPaymentPreference)) && hasNewPatientsPreference && hasLanguage && hasGender && hasScheduling;
 
   if (hasEnoughInfo) {
     // All preferences collected - filter psychiatrists
@@ -190,26 +210,36 @@ export async function generateRecommendationResponse(
     };
   }
 
-  // Determine next question to ask based on what's missing
+  // Determine next question to ask based on what's missing (sequential order)
   let nextQuestionIndex = questionIndex;
   let nextQuestion = questions[questionIndex].question;
 
-  if (questionIndex === 0 && !hasLocation) {
+  // Ask questions in order, only moving forward when current question is answered
+  if (!hasLocation) {
     nextQuestionIndex = 0;
     nextQuestion = questions[0].question;
-  } else if (questionIndex <= 1 && !hasInsurance) {
+  } else if (!hasInsurance) {
     nextQuestionIndex = 1;
     nextQuestion = questions[1].question;
-  } else if (questionIndex <= 2 && hasInsurance && !mergedPreferences.insurancePlan) {
+  } else if (hasInsurance && !mergedPreferences.insurancePlan && questionIndex <= 2) {
     // Insurance plan is optional, ask but allow skip
     nextQuestionIndex = 2;
     nextQuestion = questions[2].question;
-  } else if (questionIndex <= 3 && !hasPaymentPreference) {
+  } else if (!hasPaymentPreference) {
     nextQuestionIndex = 3;
     nextQuestion = questions[3].question;
-  } else if (questionIndex <= 4 && !hasNewPatientsPreference) {
+  } else if (!hasNewPatientsPreference) {
     nextQuestionIndex = 4;
     nextQuestion = questions[4].question;
+  } else if (!hasLanguage) {
+    nextQuestionIndex = 5;
+    nextQuestion = questions[5].question;
+  } else if (!hasGender) {
+    nextQuestionIndex = 6;
+    nextQuestion = questions[6].question;
+  } else if (!hasScheduling) {
+    nextQuestionIndex = 7;
+    nextQuestion = questions[7].question;
   }
 
   // Ask ONE question at a time (sequential approach)

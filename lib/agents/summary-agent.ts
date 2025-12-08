@@ -51,18 +51,21 @@ AGENT LANGUAGE STYLE:
 - Avoid over-apologizing or long technical explanations
 - Focus on helpful transitions and warm clarity
 
-REQUIRED STRUCTURE (based on standard psychiatric interview format):
+REQUIRED STRUCTURE (based on DSM-5 psychiatric interview format):
 1. Identifying information: "A [age]-year-old [gender] presenting with [chief complaint]..."
-2. History of present illness: Current symptoms, severity, duration (1-2 sentences)
-3. Past psychiatric history: Prior diagnoses, treatments, medications (1 sentence if applicable)
-4. Personal history: Brief relevant background (if available)
-5. Family history: Psychiatric/medical family history (if mentioned)
-6. Medical history: Relevant medical conditions (if mentioned)
-7. Substance use history: Alcohol, drugs, tobacco (if mentioned)
-8. Mental status: Observable or inferred mental status (brief, professional)
-9. PHQ-9 score: ${intakeData.phq9Score || 'Not completed'} / 27 (include severity interpretation)
-10. Safety concerns: Suicidal ideation, self-harm, harm to others (if any)
-11. Functional impact: How symptoms affect daily life (1 sentence)
+2. Chief complaint: Primary reason for seeking care (1-2 sentences)
+3. History of present illness: Current symptoms WITH duration and severity for each symptom
+   - For each symptom mentioned, include: symptom name, how long it's been present, and severity level
+   - Example: "Patient reports low mood for 3 months, poor concentration for 2 months (moderate severity)..."
+4. Past psychiatric history: Prior diagnoses, treatments, medications, hospitalizations (1-2 sentences if applicable)
+5. Personal & family history: Brief relevant background, family psychiatric/medical history (if available)
+6. Medical/substance use history: Relevant medical conditions, alcohol, drugs, tobacco use (if mentioned)
+7. Mental status observations: Observable or inferred mental status (brief, professional)
+8. Symptoms with duration and severity: List all symptoms with specific durations and severity levels
+9. PHQ-9 score: ${intakeData.phq9Score || 'Not completed'} / 27 (include severity interpretation: minimal/mild/moderate/moderately severe/severe)
+10. Safety concerns: Suicidal ideation, self-harm, harm to others (if any, be specific)
+11. Functional impact: How symptoms affect daily life, work, relationships (1-2 sentences)
+12. Preferences: Any treatment preferences, therapy type preferences mentioned
 
 WRITING REQUIREMENTS:
 - Write in natural, flowing sentences (not bullet points)

@@ -116,15 +116,18 @@ export function ClinicalSummaryView() {
   const previewText = generatePreviewText();
 
   return (
-    <div className="mb-4 space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Clinical Summary Review</CardTitle>
-          <CardDescription>
-            Please review your clinical summary. You can edit fields below, and see a live preview on the right.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+    <div className="mb-4">
+      {/* Side-by-side layout: editable form on left, preview on right */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Editable Form - Left Side */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Clinical Summary Review</CardTitle>
+            <CardDescription>
+              Please review your clinical summary. Edit fields below and see live preview on the right.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
           {/* Editable fields */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -213,40 +216,41 @@ export function ClinicalSummaryView() {
             </Button>
           </div>
         </CardContent>
-      </Card>
-
-      {/* Live Preview Panel - shown when not confirmed */}
-      {showPreview && (
-        <Card className="border-primary/20">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-base">Live Preview</CardTitle>
-                <CardDescription>
-                  This preview updates automatically as you make changes
-                </CardDescription>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowPreview(false)}
-              >
-                Hide
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="rounded-lg border border-border bg-muted/30 p-4">
-              <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
-                {previewText}
-              </pre>
-            </div>
-            <div className="mt-3 text-xs text-muted-foreground">
-              PHQ-9 Score: {clinicalSummary.phq9Score} / 27
-            </div>
-          </CardContent>
         </Card>
-      )}
+
+        {/* Live Preview Sidebar - Right Side, shown when not confirmed */}
+        {showPreview && (
+          <Card className="border-primary/20 h-fit">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base">Live Preview</CardTitle>
+                  <CardDescription>
+                    Updates automatically as you make changes
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowPreview(false)}
+                >
+                  Hide
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-lg border border-border bg-muted/30 p-4 max-h-[600px] overflow-y-auto">
+                <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
+                  {previewText}
+                </pre>
+              </div>
+              <div className="mt-3 text-xs text-muted-foreground">
+                PHQ-9 Score: {clinicalSummary.phq9Score} / 27
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }

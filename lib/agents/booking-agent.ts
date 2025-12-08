@@ -38,11 +38,12 @@ export async function generateBookingEmail(
   const prompt = `Generate a professional referral email to a psychiatrist. Include:
 
 1. Subject line: "New Patient Referral - [Patient Initials/Age]"
-2. Brief introduction
-3. Clinical summary (from intake)
-4. Patient availability/preferences for scheduling
-5. Contact information for follow-up
-6. Professional closing
+2. Brief introduction explaining this is a referral from the PsyConnect platform
+3. Clinical summary (from intake) - include this in the email body
+4. Note that the full clinical summary is also attached as a text file
+5. Patient availability/preferences for scheduling
+6. Contact information for follow-up
+7. Professional closing
 
 Psychiatrist Information:
 - Name: ${psychiatrist.name}
@@ -56,7 +57,7 @@ ${clinicalSummary.text}
 Patient Availability: ${patientAvailability || 'Flexible'}
 Contact Information: ${patientContactInfo || 'To be provided'}
 
-Generate a professional, concise email suitable for a psychiatrist referral.`;
+Generate a professional, concise email suitable for a psychiatrist referral. The email should reference that a detailed clinical summary is attached.`;
 
   try {
     const response = await openai.chat.completions.create({
@@ -154,24 +155,43 @@ export async function updateBookingStatus(
 }
 
 /**
- * Mock email sending function
- * In production, integrate with email service (Nodemailer, SendGrid, etc.)
+ * Send email with optional attachment via serverless function
+ * In production, this calls the /api/send-email endpoint which integrates with email service
  */
 export async function sendEmail(
   to: string,
   subject: string,
-  body: string
+  body: string,
+  attachmentText?: string,
+  attachmentFileName?: string
 ): Promise<boolean> {
-  // Mock implementation - in production, use actual email service
-  console.log('Mock email send:', { to, subject, body });
-  
-  // Simulate API call
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  // In production:
-  // const emailService = ...;
-  // return await emailService.send({ to, subject, body });
-  
-  return true;
+  try {
+    // Call serverless function to send email
+    const response = await fetch('/api/send-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        to,
+        subject,
+        body,
+        attachmentText,
+        attachmentFileName: attachmentFileName || 'clinical-summary.txt',
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      console.error('[Booking Agent] Email send failed:', data.error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('[Booking Agent] Error sending email:', error);
+    return false;
+  }
 }
 

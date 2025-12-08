@@ -29,6 +29,8 @@ export interface IntakeData {
   patientGender?: string;
   completionPercentage: number;
   patientReadyForSummary?: boolean; // Patient has confirmed they're done sharing
+  symptomDuration?: Record<string, string>; // Track duration for each symptom (e.g., {"depression": "3 months"})
+  symptomSeverity?: Record<string, string>; // Track severity for each symptom
 }
 
 export interface RecommendationPreferences {
@@ -38,8 +40,11 @@ export interface RecommendationPreferences {
   inNetworkOnly?: boolean;
   acceptsNewPatientsOnly?: boolean;
   acceptsCashPay?: boolean;
+  preferredLanguage?: string; // Language preference (e.g., "English", "Spanish")
+  preferredGender?: string; // Gender preference for psychiatrist (e.g., "male", "female", "no preference")
+  schedulingPreferences?: string; // Scheduling preferences (e.g., "weekends only", "evening hours")
   // Track which preference questions have been asked
-  currentQuestionIndex?: number; // 0=location, 1=insurance, 2=plan, 3=payment, 4=new patients
+  currentQuestionIndex?: number; // 0=location, 1=insurance, 2=plan, 3=payment, 4=new patients, 5=language, 6=gender, 7=scheduling
 }
 
 export interface ClinicalSummary {

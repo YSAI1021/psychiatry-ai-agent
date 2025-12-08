@@ -8,7 +8,7 @@ export function SecurityDisclaimer() {
     <Alert className="mb-2 border-border/50 bg-muted/30 py-1.5">
       <Info className="h-3 w-3 text-muted-foreground shrink-0" />
       <AlertTitle className="text-xs font-medium text-muted-foreground">
-        Important Notice
+        ⚠️ Important Notice
       </AlertTitle>
       <AlertDescription className="text-xs text-muted-foreground/80 leading-tight">
         This is not a diagnostic or emergency service. If you are in crisis, please contact{' '}

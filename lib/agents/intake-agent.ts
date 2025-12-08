@@ -242,13 +242,18 @@ ${needsPHQ9 ? `
    ${nextQuestionIndex < 9 ? `NEXT QUESTION TO ASK: "${questionsToAsk[nextQuestionIndex]}"` : 'All 9 questions have been asked.'}
 ` : 'All depression symptom questions have been completed.'}
 
-2. GENERAL CLARIFICATION: If patient gives unclear answers or says "I don't know" or "not sure", DO NOT repeat the same question.
+2. TIME FRAME AWARENESS: When asking about symptoms, ALWAYS ask how long each symptom has been present.
+   - After learning about a symptom, ask: "How long have you been experiencing [symptom]?" or "When did [symptom] start?"
+   - Collect duration information for all symptoms to support diagnosis
+   - Examples: "3 months", "about 6 weeks", "since last year"
+
+3. GENERAL CLARIFICATION: If patient gives unclear answers or says "I don't know" or "not sure", DO NOT repeat the same question.
    Instead, clarify or rephrase to help them understand.
    Example: "When I ask about 'feeling tired,' I mean physical or mental fatigue. Could you describe what you've experienced?"
 
-3. Current completion: ${completion}% - you need at least 75% to be ready for summary
-${allFieldsComplete && !patientReady ? '4. PATIENT READINESS: All required information is collected. Now ask: "Is there anything else you\'d like to share before I summarize what you\'ve told me?" Only proceed after patient confirms they are done.' : ''}
-${allFieldsComplete && patientReady ? '5. READY: Patient has confirmed readiness. You may now indicate readiness to proceed to clinical summary.' : ''}`;
+4. Current completion: ${completion}% - you need at least 75% to be ready for summary
+${allFieldsComplete && !patientReady ? '5. PATIENT READINESS CHECKPOINT: All required information (including all 9 depression symptom questions) is collected. Now you MUST ask: "Is there anything else you\'d like to share before we move on?" Only proceed to summary after patient confirms they are done (yes, nothing else, ready, etc.).' : ''}
+${allFieldsComplete && patientReady ? '6. READY: Patient has confirmed readiness. You may now indicate readiness to proceed to clinical summary.' : ''}`;
 
   const messages = [
     { role: 'system' as const, content: systemPrompt },
@@ -356,6 +361,8 @@ async function extractIntakeData(
 - functionalImpact: how symptoms affect daily life
 - patientAge: age if mentioned (number only)
 - patientGender: gender if mentioned (male/female/non-binary/prefer-not-to-say)
+- symptomDuration: object with symptom names as keys and duration strings as values (e.g., {"depression": "3 months", "anxiety": "6 weeks", "insomnia": "2 weeks"})
+- symptomSeverity: object with symptom names as keys and severity strings as values (e.g., {"depression": "moderate", "anxiety": "mild", "insomnia": "severe"})
 - phq9Responses: array of numbers (0-3 each) representing answers to depression symptom questions
   IMPORTANT: Parse natural language answers into scores:
     - "not at all", "never", "none", "no" → 0

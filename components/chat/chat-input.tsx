@@ -23,10 +23,13 @@ export function ChatInput({
 }: ChatInputProps) {
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
+  // Auto-resize textarea (ChatGPT-like behavior)
   React.useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+      const scrollHeight = textareaRef.current.scrollHeight;
+      // Allow multi-line expansion up to 200px (ChatGPT-style)
+      textareaRef.current.style.height = `${Math.min(scrollHeight, 200)}px`;
     }
   }, [value]);
 

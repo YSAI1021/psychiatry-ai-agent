@@ -1,18 +1,39 @@
 /**
  * Supabase client configuration
  * Handles database connections for clinical summaries, psychiatrists, and bookings
+ * Gracefully handles missing credentials to prevent build-time errors
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-if (!supabaseUrl || !supabaseAnonKey) {
+// Create Supabase client only if credentials are available
+// This prevents build-time errors when env vars are not set
+let supabaseInstance: SupabaseClient | null = null;
+
+if (supabaseUrl && supabaseAnonKey) {
+  try {
+    supabaseInstance = createClient(supabaseUrl, supabaseAnonKey);
+  } catch (error) {
+    console.warn('Failed to create Supabase client:', error);
+  }
+} else {
   console.warn('Supabase credentials not configured. Some features may not work.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Export a safe wrapper that handles missing client
+export const supabase = supabaseInstance || {
+  from: () => ({
+    select: () => ({ data: null, error: { message: 'Supabase not configured' } }),
+    insert: () => ({ data: null, error: { message: 'Supabase not configured' } }),
+    update: () => ({ eq: () => ({ error: { message: 'Supabase not configured' } }) }),
+    ilike: () => ({ data: null, error: { message: 'Supabase not configured' } }),
+    contains: () => ({ data: null, error: { message: 'Supabase not configured' } }),
+    eq: () => ({ data: null, error: { message: 'Supabase not configured' } }),
+  }),
+} as any;
 
 // Database types
 export interface ClinicalSummary {
