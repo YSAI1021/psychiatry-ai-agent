@@ -86,10 +86,13 @@ export default function SummaryPage() {
   return (
     <>
       <div className="min-h-screen bg-background">
-        <div className="container mx-auto py-8 px-4">
-          <div className="mb-6">
+        {/* Important Banner - Always visible below header */}
+        <div className="w-full px-4 py-3 sm:px-6 border-b border-border bg-background">
+          <div className="max-w-7xl mx-auto">
             <ImportantBanner />
           </div>
+        </div>
+        <div className="container mx-auto py-8 px-4">
 
           {isGenerating ? (
             <div className="flex items-center justify-center min-h-[400px]">

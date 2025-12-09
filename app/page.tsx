@@ -161,8 +161,8 @@ export default function Home() {
   return (
     <div className="flex flex-col h-screen bg-background">
       <div className="flex-1 overflow-hidden flex flex-col">
-        {/* Important Banner */}
-        <div className="p-4 border-b border-border">
+        {/* Important Banner - Always visible below header */}
+        <div className="w-full px-4 py-3 sm:px-6 border-b border-border bg-background">
           <ImportantBanner />
         </div>
 
