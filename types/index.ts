@@ -1,4 +1,4 @@
-export type AgentType = 'intake' | 'summary' | 'recommendation' | 'booking';
+export type AgentType = 'intake' | 'summary';
 
 export interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -14,21 +14,11 @@ export interface ConversationState {
   summaryGenerated: boolean;
   phq9Completed: boolean;
   phq9Score?: number;
-  userPreferences?: UserPreferences;
   clinicalSummary?: string;
   patientInfo?: PatientInfo;
   waitingForNegativeResponse?: boolean;
+  waitingForSummaryConfirmation?: boolean;
   showSummaryForm?: boolean;
-  selectedPsychiatrist?: Psychiatrist;
-}
-
-export interface UserPreferences {
-  preferredGender?: string;
-  preferredLanguage?: string;
-  therapyStyle?: string;
-  insurance?: string;
-  location?: string;
-  availability?: string;
 }
 
 export interface PHQ9Response {
@@ -53,24 +43,3 @@ export interface PatientInfo {
   emergencyContact?: string;
 }
 
-export interface Psychiatrist {
-  id: string;
-  name: string;
-  credential: string; // MD, DO, etc.
-  subspecialty: string;
-  inNetwork: boolean;
-  acceptingNewPatients: boolean;
-  availability: string;
-  bio?: string;
-  languages?: string[];
-  yearsOfExperience?: number;
-  additionalCredentials?: string[];
-  location?: string;
-  gender?: string;
-}
-
-export interface BookingEmail {
-  to: string;
-  subject: string;
-  body: string;
-}

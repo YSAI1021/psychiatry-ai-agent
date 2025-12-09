@@ -38,6 +38,13 @@ export default function SummaryForm({ clinicalSummary, onSubmit }: SummaryFormPr
       .replace(/`([^`]+)`/g, '$1') // Remove inline code
       .trim();
     
+    // Remove markdown bold markers (**text** or __text__) and convert to proper headings
+    formatted = formatted
+      .replace(/\*\*(.+?)\*\*/g, '$1') // Remove **bold**
+      .replace(/__(.+?)__/g, '$1') // Remove __bold__
+      .replace(/\*(.+?)\*/g, '$1') // Remove *bold*
+      .replace(/_(.+?)_/g, '$1'); // Remove _bold_
+    
     // Convert markdown-style headers to HTML
     formatted = formatted
       .replace(/^### (.*$)/gim, '<h4>$1</h4>')
@@ -68,18 +75,29 @@ export default function SummaryForm({ clinicalSummary, onSubmit }: SummaryFormPr
         }
         const content = trimmedLine.replace(/^[\*\-\d+\.\s]+/, '');
         formattedLines.push(`<li>${content}</li>`);
-      } else {
-        if (inList) {
-          formattedLines.push('</ul>');
-          inList = false;
-        }
-        // Check if it's already a header
-        if (trimmedLine.startsWith('<h')) {
-          formattedLines.push(trimmedLine);
         } else {
-          formattedLines.push(`<p>${trimmedLine}</p>`);
+          if (inList) {
+            formattedLines.push('</ul>');
+            inList = false;
+          }
+          // Check if it's already a header
+          if (trimmedLine.startsWith('<h')) {
+            formattedLines.push(trimmedLine);
+          } else {
+            // Check if line looks like a section header (ends with colon, is short, and doesn't contain sentence-ending punctuation)
+            const isSectionHeader = trimmedLine.endsWith(':') && 
+                                   trimmedLine.length < 50 && 
+                                   !trimmedLine.includes('.') &&
+                                   !trimmedLine.includes('!') &&
+                                   !trimmedLine.includes('?');
+            
+            if (isSectionHeader) {
+              formattedLines.push(`<h3 class="section-header">${trimmedLine}</h3>`);
+            } else {
+              formattedLines.push(`<p>${trimmedLine}</p>`);
+            }
+          }
         }
-      }
     });
     
     if (inList) {
@@ -247,6 +265,17 @@ export default function SummaryForm({ clinicalSummary, onSubmit }: SummaryFormPr
           margin: 1.25rem 0 0.75rem 0;
         }
 
+        .summary-text h3.section-header {
+          font-size: 1rem;
+          font-weight: 600;
+          color: #1f2937;
+          margin: 1.5rem 0 0.5rem 0;
+        }
+
+        .summary-text h3.section-header:first-of-type {
+          margin-top: 0;
+        }
+
         .summary-text h4 {
           font-size: 1rem;
           font-weight: 600;
@@ -333,7 +362,7 @@ export default function SummaryForm({ clinicalSummary, onSubmit }: SummaryFormPr
         .submit-btn {
           width: 100%;
           padding: 0.875rem 1.5rem;
-          background-color: #19c37d;
+          background-color: #4b5563;
           color: white;
           border: none;
           border-radius: 8px;
@@ -344,7 +373,7 @@ export default function SummaryForm({ clinicalSummary, onSubmit }: SummaryFormPr
         }
 
         .submit-btn:hover {
-          background-color: #16a269;
+          background-color: #374151;
         }
 
         @media (max-width: 768px) {

@@ -1,32 +1,24 @@
-# PsyConnect Agent - Multi-Agent Psychiatric Intake System
+# PsyConnect Agent - Psychiatric Intake Assessment System
 
-A sophisticated multi-agent AI environment designed for conducting psychiatric intake assessments via a conversational interface. The system consists of three specialized agents working in sequence to gather information, generate clinical summaries, and provide psychiatrist recommendations.
+A streamlined AI-powered system for conducting psychiatric intake assessments via a conversational interface. The system consists of two specialized agents working in sequence to gather information and generate clinical summaries.
 
 ## Features
 
-### 🤖 Three-Agent Architecture
+### 🤖 Two-Agent Architecture
 
 1. **Intake Agent**: Conducts friendly, conversational Q&A to gather clinical information
    - No summarizing or reflecting patient responses
    - Smart topic detection to avoid repeating questions
    - Memory tracking of discussed topics
    - Follows psychiatric interview structure
+   - Asks "Is there anything else you'd like to share before I summarize everything?"
+   - Then asks "Would you like to review a clinical summary of what you shared?"
 
 2. **Summary Agent**: Generates concise clinical summaries for human clinicians
    - Covers all psychiatric interview sections
    - Factual, structured, and clinically relevant
    - Professional language
-
-3. **Recommendation Agent**: Matches patients with psychiatrists
-   - Collects user preferences (gender, language, therapy style, etc.)
-   - Filters based on clinical needs and preferences
-   - Provides personalized recommendations
-
-### 📋 PHQ-9 Integration
-
-- Self-report questionnaire presented after intake conversation
-- Tracks total score out of 27
-- Integrated into clinical summary
+   - Displays in editable form format
 
 ### 💬 Modern UI
 
@@ -34,6 +26,7 @@ A sophisticated multi-agent AI environment designed for conducting psychiatric i
 - Fully responsive design
 - Streaming responses for better UX
 - Important safety notice prominently displayed
+- Monotone gray color scheme
 
 ## Setup
 
@@ -77,19 +70,17 @@ npm run dev
 psychiatry-ai-agent/
 ├── agents/              # Agent logic files
 │   ├── intake-agent.ts
-│   ├── summary-agent.ts
-│   └── recommendation-agent.ts
+│   └── summary-agent.ts
 ├── app/                 # Next.js app directory
 │   ├── api/            # API routes
 │   │   ├── intake/
-│   │   ├── summary/
-│   │   └── recommendation/
+│   │   └── summary/
 │   ├── layout.tsx
 │   ├── page.tsx
 │   └── globals.css
 ├── components/          # React components
 │   ├── ChatInterface.tsx
-│   └── PHQ9Questionnaire.tsx
+│   └── SummaryForm.tsx
 ├── types/              # TypeScript type definitions
 │   └── index.ts
 ├── utils/              # Utility functions
@@ -107,7 +98,6 @@ psychiatry-ai-agent/
 - ✅ Maintains warm, conversational tone
 - ❌ Never summarizes or reflects patient responses
 - ❌ Never repeats questions already answered
-- ❌ Never mentions "PHQ-9" to patients
 
 ### Interview Sections Covered
 
@@ -146,7 +136,7 @@ npm run lint
 
 ## Important Notes
 
-⚠️ **This is not a diagnostic or emergency service.** If you are in crisis, please contact 988 (Suicide & Crisis Lifeline) or go to your nearest emergency room immediately.
+⚠️ **This is not a diagnostic or emergency service.** If you are in crisis, please contact your local emergency services or the National Suicide Prevention Lifeline at 988.
 
 This system is designed for intake assessment purposes only and should be used in conjunction with professional clinical oversight.
 

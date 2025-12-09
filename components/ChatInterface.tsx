@@ -1,13 +1,9 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Message, AgentType, ConversationState, PHQ9Response, Psychiatrist, BookingEmail } from '@/types';
+import { Message, AgentType, ConversationState, PatientInfo } from '@/types';
 import { detectTopics } from '@/utils/topicDetection';
-import PHQ9Questionnaire from './PHQ9Questionnaire';
 import SummaryForm from './SummaryForm';
-import PsychiatristCard from './PsychiatristCard';
-import PsychiatristProfile from './PsychiatristProfile';
-import { PatientInfo } from '@/types';
 
 interface ChatInterfaceProps {
   onStateChange: (state: ConversationState) => void;
@@ -25,20 +21,13 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
   const [currentAgent, setCurrentAgent] = useState<AgentType>('intake');
   const [topicsDiscussed, setTopicsDiscussed] = useState<Set<string>>(new Set());
   const [intakeComplete, setIntakeComplete] = useState(false);
-  const [showPHQ9, setShowPHQ9] = useState(false);
-  const [phq9Score, setPhq9Score] = useState<number | undefined>();
   const [summaryGenerated, setSummaryGenerated] = useState(false);
   const [clinicalSummary, setClinicalSummary] = useState<string>('');
-  const [showRecommendations, setShowRecommendations] = useState(false);
   const [waitingForNegativeResponse, setWaitingForNegativeResponse] = useState(false);
-  const [showPHQ9Message, setShowPHQ9Message] = useState(false);
+  const [waitingForSummaryConfirmation, setWaitingForSummaryConfirmation] = useState(false);
   const [showSummaryForm, setShowSummaryForm] = useState(false);
   const [patientInfo, setPatientInfo] = useState<PatientInfo>({});
-  const [selectedPsychiatrist, setSelectedPsychiatrist] = useState<Psychiatrist | null>(null);
-  const [psychiatrists, setPsychiatrists] = useState<Psychiatrist[]>([]);
-  const [viewingBio, setViewingBio] = useState<Psychiatrist | null>(null);
-  const [bookingEmail, setBookingEmail] = useState<BookingEmail | null>(null);
-  const [showEmailEditor, setShowEmailEditor] = useState(false);
+  const [formSubmitted, setFormSubmitted] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -113,8 +102,7 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
           topicsDiscussed,
           intakeComplete,
           summaryGenerated,
-          phq9Completed: showPHQ9,
-          phq9Score,
+          phq9Completed: false,
         };
 
         const response = await streamResponse('/api/intake', {
@@ -122,7 +110,7 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
           state,
         });
 
-        // Update topics discussed from the response
+        // Update topics discussed
         const detectedTopics = detectTopics(userMessage);
         setTopicsDiscussed(prev => {
           const newSet = new Set(prev);
@@ -130,131 +118,76 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
           return newSet;
         });
 
-        // Check if agent asked "Is there anything else you'd like to share first?"
-        if (response.toLowerCase().includes('anything else') && !intakeComplete && !waitingForNegativeResponse) {
+        // Check if agent asked "Is there anything else you'd like to share before I summarize everything?"
+        if (response.toLowerCase().includes('anything else') && 
+            response.toLowerCase().includes('before i summarize') && 
+            !waitingForNegativeResponse) {
           setWaitingForNegativeResponse(true);
         }
 
-        // Check if user gave negative response (no, that's all, etc.)
+        // Check if user gave negative response to "anything else" question
         if (waitingForNegativeResponse) {
           const lowerMessage = userMessage.toLowerCase();
-          const negativeResponses = ['no', "that's all", "that's it", 'nothing else', 'no thanks', "i'm done", "i'm finished"];
+          const negativeResponses = ['no', "that's all", "that's it", 'nothing else', 'no thanks', "i'm done", "i'm finished", "that's everything"];
           const isNegative = negativeResponses.some(neg => lowerMessage.includes(neg));
           
           if (isNegative) {
             setWaitingForNegativeResponse(false);
             setIntakeComplete(true);
-            setShowPHQ9Message(true);
-            // Wait a moment before showing PHQ-9
+            // Ask about reviewing summary
             setTimeout(() => {
-              setShowPHQ9Message(false);
-              setShowPHQ9(true);
-            }, 2000);
+              setMessages(prev => [
+                ...prev,
+                { role: 'assistant', content: 'Would you like to review a clinical summary of what you shared?' },
+              ]);
+              setWaitingForSummaryConfirmation(true);
+            }, 500);
+            setIsLoading(false);
+            return; // Don't process further
           }
         }
-      } else if (currentAgent === 'recommendation') {
-        const fullResponse = await streamResponse('/api/recommendation', {
-          userResponse: userMessage,
-          clinicalSummary,
-          preferences: {},
-        });
-        
-        // Try to parse psychiatrist data from response (look for JSON at the end)
-        try {
-          // Find the last JSON object in the response
-          const jsonMatches = fullResponse.match(/\{[^{}]*"psychiatrists"[^{}]*\[[^\]]*\][^{}]*\}/g);
-          if (jsonMatches && jsonMatches.length > 0) {
-            const lastMatch = jsonMatches[jsonMatches.length - 1];
-            const parsed = JSON.parse(lastMatch);
-            if (parsed.psychiatrists && Array.isArray(parsed.psychiatrists) && parsed.psychiatrists.length > 0) {
-              setPsychiatrists(parsed.psychiatrists);
-              // Add message asking if they want to learn more
-              setTimeout(() => {
-                setMessages(prev => [
-                  ...prev,
-                  { role: 'assistant', content: 'Would you like to learn more about a specific psychiatrist?' },
-                ]);
-              }, 500);
+
+        // Check if agent asked "Would you like to review a clinical summary?"
+        if (response.toLowerCase().includes('review a clinical summary') || 
+            response.toLowerCase().includes('clinical summary of what you shared')) {
+          setWaitingForSummaryConfirmation(true);
+        }
+
+        // Handle summary confirmation response
+        if (waitingForSummaryConfirmation) {
+          const lowerMessage = userMessage.toLowerCase();
+          const positiveResponses = ['yes', 'sure', 'ok', 'okay', 'yeah', 'yep', 'please'];
+          const isPositive = positiveResponses.some(pos => lowerMessage.includes(pos));
+          
+          if (isPositive) {
+            setWaitingForSummaryConfirmation(false);
+            // Generate summary
+            setIsLoading(true);
+            try {
+              const summary = await streamResponse('/api/summary', {
+                conversationHistory: messages,
+                phq9Score: undefined,
+              });
+              setClinicalSummary(summary);
+              setSummaryGenerated(true);
+              setCurrentAgent('summary');
+              setShowSummaryForm(true);
+            } catch (error) {
+              console.error('Error generating summary:', error);
+              setMessages(prev => [
+                ...prev,
+                { role: 'assistant', content: 'I apologize, but I encountered an error generating the summary. Please try again.' },
+              ]);
+            } finally {
+              setIsLoading(false);
             }
-          }
-        } catch (e) {
-          // Not JSON, continue
-          console.log('Could not parse psychiatrist data:', e);
-        }
-      } else if (currentAgent === 'summary') {
-        // Handle summary form responses
-        const lowerMessage = userMessage.toLowerCase();
-        if (lowerMessage.includes('yes') || lowerMessage.includes('sure') || lowerMessage.includes('ok')) {
-          handleSummaryRequest(true);
-        } else {
-          handleSummaryRequest(false);
-        }
-      } else if (currentAgent === 'booking') {
-        const response = await streamResponse('/api/booking', {
-          userResponse: userMessage,
-          clinicalSummary,
-          patientInfo,
-          selectedPsychiatrist,
-        });
-        
-        // Try to parse email from response
-        try {
-          const jsonMatch = response.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            if (parsed.to && parsed.subject && parsed.body) {
-              setBookingEmail(parsed);
-              setShowEmailEditor(true);
-            }
-          }
-        } catch (e) {
-          // Not JSON, continue
-        }
-      }
-      
-      // Handle recommendation follow-up questions
-      if (currentAgent === 'recommendation' && psychiatrists.length > 0) {
-        const lowerMessage = userMessage.toLowerCase();
-        if (lowerMessage.includes('yes') && (lowerMessage.includes('know more') || lowerMessage.includes('learn more') || lowerMessage.includes('about'))) {
-          // User wants to see detailed profile - handled by viewingBio state via card click
-          // The message will prompt them to click "View Bio" on a card
-        } else if (lowerMessage.includes('select') || lowerMessage.includes('choose') || lowerMessage.includes('pick')) {
-          // Try to find psychiatrist by name in message
-          const selected = psychiatrists.find(p => {
-            const nameParts = p.name.toLowerCase().split(' ');
-            return nameParts.some(part => lowerMessage.includes(part));
-          });
-          if (selected) {
-            setSelectedPsychiatrist(selected);
-            setCurrentAgent('booking');
+          } else if (lowerMessage.includes('no') || lowerMessage.includes('skip')) {
+            setWaitingForSummaryConfirmation(false);
             setMessages(prev => [
               ...prev,
-              { role: 'assistant', content: `You've selected ${selected.name}. Would you like help reaching out to them to book an appointment?` },
+              { role: 'assistant', content: 'Thank you for sharing your information. Take care!' },
             ]);
           }
-        }
-      }
-      
-      // Handle summary form submission follow-up
-      if (showSummaryForm === false && summaryGenerated && patientInfo.name) {
-        const lowerMessage = userMessage.toLowerCase();
-        if (lowerMessage.includes('yes') && lowerMessage.includes('recommendation')) {
-          setCurrentAgent('recommendation');
-          const recommendationResponse = await streamResponse('/api/recommendation', {
-            userResponse: 'start',
-            clinicalSummary,
-            preferences: {},
-          });
-        }
-      }
-      
-      // Check if user wants to review summary after PHQ-9
-      if (phq9Score && !summaryGenerated && !showSummaryForm) {
-        const lowerMessage = userMessage.toLowerCase();
-        if (lowerMessage.includes('yes') || lowerMessage.includes('sure') || lowerMessage.includes('ok')) {
-          handleSummaryRequest(true);
-        } else if (lowerMessage.includes('no') || lowerMessage.includes('skip')) {
-          handleSummaryRequest(false);
         }
       }
     } catch (error) {
@@ -268,44 +201,14 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
     }
   };
 
-  const handlePHQ9Complete = async (score: number, responses: PHQ9Response[]) => {
-    setPhq9Score(score);
-    setShowPHQ9(false);
-    
-    // Ask if they want to review clinical summary
+  const handleSummarySubmit = (info: PatientInfo) => {
+    setPatientInfo(info);
+    setShowSummaryForm(false);
+    setFormSubmitted(true);
     setMessages(prev => [
       ...prev,
-      { role: 'assistant', content: 'Would you like to review a clinical summary based on your responses?' },
+      { role: 'assistant', content: 'Thank you for completing the intake assessment. Your information has been submitted successfully.' },
     ]);
-  };
-
-  const handleSummaryRequest = async (wantsSummary: boolean) => {
-    if (!wantsSummary) {
-      // Skip to recommendations
-      setCurrentAgent('recommendation');
-      const recommendationResponse = await streamResponse('/api/recommendation', {
-        userResponse: 'start',
-        clinicalSummary: '',
-        preferences: {},
-      });
-      return;
-    }
-
-    // Generate summary
-    setIsLoading(true);
-    try {
-      const summary = await streamResponse('/api/summary', {
-        conversationHistory: messages,
-        phq9Score: phq9Score,
-      });
-      setClinicalSummary(summary);
-      setSummaryGenerated(true);
-      setShowSummaryForm(true);
-    } catch (error) {
-      console.error('Error generating summary:', error);
-    } finally {
-      setIsLoading(false);
-    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -337,129 +240,16 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
         <div ref={messagesEndRef} />
       </div>
 
-      {showPHQ9Message && (
-        <div className="phq9-message">
-          <div className="message assistant">
-            <div className="avatar">AI</div>
-            <div className="message-content">
-              Please complete the PHQ-9 questionnaire to help us understand your situation more accurately.
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showPHQ9 && !phq9Score && (
-        <div className="phq9-wrapper">
-          <PHQ9Questionnaire onComplete={handlePHQ9Complete} />
-        </div>
-      )}
-
-      {showSummaryForm && (
+      {showSummaryForm && !formSubmitted && (
         <div className="summary-form-wrapper">
           <SummaryForm
             clinicalSummary={clinicalSummary}
-            onSubmit={(info: PatientInfo) => {
-              setPatientInfo(info);
-              setShowSummaryForm(false);
-              setMessages(prev => [
-                ...prev,
-                { role: 'assistant', content: 'Would you like to see psychiatrist recommendations based on this information?' },
-              ]);
-            }}
+            onSubmit={handleSummarySubmit}
           />
         </div>
       )}
 
-      {psychiatrists.length > 0 && !selectedPsychiatrist && (
-        <div className="psychiatrists-wrapper">
-          <h3 className="psychiatrists-title">Available Psychiatrists</h3>
-          {psychiatrists.map((psych) => (
-            <PsychiatristCard
-              key={psych.id}
-              psychiatrist={psych}
-              onSelect={(p) => {
-                setSelectedPsychiatrist(p);
-                setCurrentAgent('booking');
-                setMessages(prev => [
-                  ...prev,
-                  { role: 'assistant', content: `You've selected ${p.name}. Would you like help reaching out to them to book an appointment?` },
-                ]);
-              }}
-              onViewBio={(p) => setViewingBio(p)}
-            />
-          ))}
-          {!viewingBio && (
-            <div className="message assistant">
-              <div className="avatar">AI</div>
-              <div className="message-content">
-                Would you like to know more about any of these psychiatrists?
-              </div>
-            </div>
-          )}
-          {viewingBio && (
-            <PsychiatristProfile
-              psychiatrist={viewingBio}
-              onClose={() => setViewingBio(null)}
-            />
-          )}
-        </div>
-      )}
-
-      {showEmailEditor && bookingEmail && (
-        <div className="email-editor-wrapper">
-          <h3>Review and Edit Email</h3>
-          <div className="email-editor">
-            <div className="email-field">
-              <label>To:</label>
-              <input
-                type="email"
-                value={bookingEmail.to}
-                onChange={(e) => setBookingEmail({ ...bookingEmail, to: e.target.value })}
-                className="email-input"
-              />
-            </div>
-            <div className="email-field">
-              <label>Subject:</label>
-              <input
-                type="text"
-                value={bookingEmail.subject}
-                onChange={(e) => setBookingEmail({ ...bookingEmail, subject: e.target.value })}
-                className="email-input"
-              />
-            </div>
-            <div className="email-field">
-              <label>Body:</label>
-              <textarea
-                value={bookingEmail.body}
-                onChange={(e) => setBookingEmail({ ...bookingEmail, body: e.target.value })}
-                className="email-textarea"
-                rows={15}
-              />
-            </div>
-            <div className="email-actions">
-              <button
-                onClick={() => {
-                  window.location.href = `mailto:${bookingEmail.to}?subject=${encodeURIComponent(bookingEmail.subject)}&body=${encodeURIComponent(bookingEmail.body)}`;
-                }}
-                className="btn-send"
-              >
-                Send Email
-              </button>
-              <button
-                onClick={() => {
-                  setShowEmailEditor(false);
-                  setBookingEmail(null);
-                }}
-                className="btn-cancel"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {!showPHQ9 && !showSummaryForm && !showEmailEditor && (
+      {!showSummaryForm && (
         <div className="chat-input-container">
           <div className="chat-input-wrapper">
             <textarea
@@ -470,11 +260,11 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
               placeholder="Share what brings you here today..."
               className="chat-input"
               rows={1}
-              disabled={isLoading}
+              disabled={isLoading || formSubmitted}
             />
             <button
               onClick={handleSend}
-              disabled={!input.trim() || isLoading}
+              disabled={!input.trim() || isLoading || formSubmitted}
               className="chat-send-btn"
             >
               <svg
@@ -571,112 +361,10 @@ export default function ChatInterface({ onStateChange }: ChatInterfaceProps) {
           50% { opacity: 1; }
         }
 
-        .phq9-message {
-          padding: 1rem 1.5rem;
-        }
-
-        .phq9-wrapper {
-          padding: 1rem;
-          max-height: 60vh;
-          overflow-y: auto;
-        }
-
         .summary-form-wrapper {
           padding: 1rem;
           max-height: 80vh;
           overflow-y: auto;
-        }
-
-        .psychiatrists-wrapper {
-          padding: 1rem 1.5rem;
-        }
-
-        .psychiatrists-title {
-          font-size: 1.25rem;
-          font-weight: 600;
-          color: #1f2937;
-          margin-bottom: 1rem;
-        }
-
-
-        .email-editor-wrapper {
-          padding: 1.5rem;
-          background: white;
-          border-top: 1px solid #e5e7eb;
-        }
-
-        .email-editor-wrapper h3 {
-          font-size: 1.25rem;
-          font-weight: 600;
-          color: #1f2937;
-          margin-bottom: 1rem;
-        }
-
-        .email-editor {
-          display: flex;
-          flex-direction: column;
-          gap: 1rem;
-        }
-
-        .email-field {
-          display: flex;
-          flex-direction: column;
-        }
-
-        .email-field label {
-          font-size: 0.875rem;
-          font-weight: 500;
-          color: #374151;
-          margin-bottom: 0.5rem;
-        }
-
-        .email-input {
-          padding: 0.75rem;
-          border: 1px solid #d1d5db;
-          border-radius: 6px;
-          font-size: 1rem;
-        }
-
-        .email-textarea {
-          padding: 0.75rem;
-          border: 1px solid #d1d5db;
-          border-radius: 6px;
-          font-size: 1rem;
-          font-family: inherit;
-          resize: vertical;
-        }
-
-        .email-actions {
-          display: flex;
-          gap: 0.75rem;
-        }
-
-        .btn-send,
-        .btn-cancel {
-          flex: 1;
-          padding: 0.75rem 1.5rem;
-          border: none;
-          border-radius: 6px;
-          font-weight: 600;
-          cursor: pointer;
-        }
-
-        .btn-send {
-          background-color: #19c37d;
-          color: white;
-        }
-
-        .btn-send:hover {
-          background-color: #16a269;
-        }
-
-        .btn-cancel {
-          background-color: #f3f4f6;
-          color: #374151;
-        }
-
-        .btn-cancel:hover {
-          background-color: #e5e7eb;
         }
 
         .chat-input-container {
