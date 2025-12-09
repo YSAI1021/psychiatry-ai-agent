@@ -161,7 +161,7 @@ export default function Home() {
   return (
     <div className="flex flex-col h-screen bg-background">
       <div className="flex-1 overflow-hidden flex flex-col">
-        {/* Header with Important Banner */}
+        {/* Important Banner */}
         <div className="p-4 border-b border-border">
           <ImportantBanner />
         </div>

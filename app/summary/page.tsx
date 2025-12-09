@@ -6,6 +6,15 @@ import { ImportantBanner } from '@/components/ImportantBanner';
 import { SummaryForm } from '@/components/SummaryForm';
 import { useAssessment } from '@/contexts/AssessmentContext';
 import { ClinicalSummary, createEmptySummary } from '@/lib/agents/summary-agent';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 
 /**
  * Summary Page
@@ -18,6 +27,7 @@ export default function SummaryPage() {
   const { state, setClinicalSummary } = useAssessment();
   const router = useRouter();
   const [isGenerating, setIsGenerating] = useState(false);
+  const [showThankYouModal, setShowThankYouModal] = useState(false);
 
   useEffect(() => {
     // Generate summary if not already generated
@@ -65,32 +75,50 @@ export default function SummaryPage() {
 
   const handleSubmit = () => {
     // In a real application, this would send data to a backend
-    // For now, we'll just show a confirmation
-    alert('Assessment submitted successfully! (Note: This is a demo - no data was actually stored)');
-    
-    // Optionally reset and redirect
-    // router.push('/');
+    // Show thank you modal
+    setShowThankYouModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowThankYouModal(false);
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto py-8 px-4">
-        <div className="mb-6">
-          <ImportantBanner />
-        </div>
-
-        {isGenerating ? (
-          <div className="flex items-center justify-center min-h-[400px]">
-            <div className="text-center space-y-4">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-              <p className="text-muted-foreground">Generating clinical summary...</p>
-            </div>
+    <>
+      <div className="min-h-screen bg-background">
+        <div className="container mx-auto py-8 px-4">
+          <div className="mb-6">
+            <ImportantBanner />
           </div>
-        ) : (
-          <SummaryForm onSubmit={handleSubmit} />
-        )}
+
+          {isGenerating ? (
+            <div className="flex items-center justify-center min-h-[400px]">
+              <div className="text-center space-y-4">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+                <p className="text-muted-foreground">Generating clinical summary...</p>
+              </div>
+            </div>
+          ) : (
+            <SummaryForm onSubmit={handleSubmit} />
+          )}
+        </div>
       </div>
-    </div>
+
+      {/* Thank You Modal */}
+      <Dialog open={showThankYouModal} onOpenChange={setShowThankYouModal}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Thank You</DialogTitle>
+            <DialogDescription className="pt-2">
+              Thank you for submitting. Our psychiatry team will follow up with you soon.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={handleCloseModal}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
