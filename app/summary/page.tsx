@@ -85,9 +85,11 @@ export default function SummaryPage() {
 
   return (
     <>
+      {/* Spacer for fixed header */}
+      <div className="h-14 shrink-0" />
       <div className="min-h-screen bg-background">
         {/* Important Banner - Always visible below header */}
-        <div className="w-full px-4 py-3 sm:px-6 border-b border-border bg-background">
+        <div className="w-full px-4 py-3 sm:px-6 border-b border-border bg-background shrink-0">
           <div className="max-w-7xl mx-auto">
             <ImportantBanner />
           </div>
